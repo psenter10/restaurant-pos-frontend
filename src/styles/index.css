@@ -1,0 +1,103 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+}
+
+@layer components {
+  /* Signature element: table + ticket cards styled like perforated receipt stubs */
+  .ticket-card {
+    @apply relative bg-white border border-line rounded-md shadow-sm;
+  }
+  .ticket-card::before,
+  .ticket-card::after {
+    content: '';
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    background: #f7f5f0;
+    border-radius: 9999px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .ticket-card::before {
+    left: -8px;
+  }
+  .ticket-card::after {
+    right: -8px;
+  }
+
+  .status-dot {
+    @apply inline-block w-2.5 h-2.5 rounded-full;
+  }
+
+  .badge-icon {
+    @apply flex items-center justify-center w-7 h-7 rounded-full bg-white border border-line shadow-sm;
+  }
+
+  .btn-primary {
+    @apply bg-navy text-white font-display font-medium px-4 py-2 rounded-md hover:bg-navy-light transition-colors disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply bg-white border border-line text-ink font-medium px-4 py-2 rounded-md hover:bg-line/40 transition-colors;
+  }
+
+  .app-shell {
+    @apply min-h-screen flex flex-col;
+  }
+}
+
+@layer utilities {
+  @keyframes fade-in-up {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  .animate-fade-in-up {
+    animation: fade-in-up 0.5s ease-out both;
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  .animate-fade-in {
+    animation: fade-in 0.6s ease-out both;
+  }
+}
+
+/* Print-specific styles for window.print() fallback receipts */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #print-area,
+  #print-area * {
+    visibility: visible;
+  }
+  #print-area {
+    display: block !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 80mm;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+}
