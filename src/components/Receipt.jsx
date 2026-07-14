@@ -1,6 +1,13 @@
 import React from 'react';
 import { formatDate, formatTime, splitItemName, RESTAURANT_INFO } from '../services/print.js';
 
+// Full-width dashed rule — a literal string of dashes only spans however wide
+// those characters render at, not the container, so it falls short of the
+// actual receipt width. A border always spans 100%.
+function Divider() {
+  return <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />;
+}
+
 // Rendered off-screen; only visible via @media print rules (see styles/index.css).
 // Used as the window.print() fallback when QZ Tray isn't connected.
 export default function Receipt({ type, order, restaurant = RESTAURANT_INFO }) {
@@ -11,7 +18,7 @@ export default function Receipt({ type, order, restaurant = RESTAURANT_INFO }) {
     return (
       <div id="print-area" className="hidden">
         <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 16 }}>KOT #{order.kotNo}</div>
-        <div>--------------------------------</div>
+        <Divider />
         <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
           <span>Order #{order.orderNo}</span>
           <span style={{ fontWeight: 400 }}>Table: {order.tableName}</span>
@@ -20,13 +27,20 @@ export default function Receipt({ type, order, restaurant = RESTAURANT_INFO }) {
           <span>Date: {formatDate(now)}</span>
           <span>Time: {formatTime(now)}</span>
         </div>
-        <div>
-          Waiter: <b>{order.waiter || '-'}</b>
-        </div>
+        {order.waiter && (
+          <div>
+            Waiter: <b>{order.waiter}</b>
+          </div>
+        )}
         <div>
           Order Type: <b>{order.orderType || '-'}</b>
         </div>
-        <div>--------------------------------</div>
+        {order.note && (
+          <div>
+            Note: <b>{order.note}</b>
+          </div>
+        )}
+        <Divider />
         <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
           <span>Item Name</span>
           <span>Qty</span>
@@ -59,16 +73,19 @@ export default function Receipt({ type, order, restaurant = RESTAURANT_INFO }) {
       ))}
       <div style={{ textAlign: 'center' }}>Phone: {restaurant.phone}</div>
       <div style={{ textAlign: 'center' }}>GSTIN: {restaurant.gstin}</div>
-      <div>--------------------------------</div>
+      <Divider />
       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
         <span>Order #{order.orderNo}</span>
-        <span>
-          {formatDate(now)} {formatTime(now)}
-        </span>
+        <span style={{ fontWeight: 400 }}>Table: {order.tableName}</span>
       </div>
-      <div>Waiter: {order.waiter || '-'}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <span>Date: {formatDate(now)}</span>
+        <span>Time: {formatTime(now)}</span>
+      </div>
+      {order.waiter && <div>Waiter: {order.waiter}</div>}
       <div>{order.orderType || '-'}</div>
-      <div>--------------------------------</div>
+      {order.customerName && <div>Customer: {order.customerName}</div>}
+      <Divider />
       <div style={{ display: 'flex', fontWeight: 700 }}>
         <span style={{ width: '12%' }}>Qty</span>
         <span style={{ width: '44%' }}>Item Name</span>
@@ -91,7 +108,7 @@ export default function Receipt({ type, order, restaurant = RESTAURANT_INFO }) {
           </div>
         );
       })}
-      <div>--------------------------------</div>
+      <Divider />
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <span>Sub Total:</span>
         <span>₹{order.subtotal.toFixed(2)}</span>
@@ -101,15 +118,15 @@ export default function Receipt({ type, order, restaurant = RESTAURANT_INFO }) {
         <span>-₹{(order.discount || 0).toFixed(2)}</span>
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <span>GST (5%):</span>
+        <span>GST ({order.taxRate ?? 5}%):</span>
         <span>₹{order.tax.toFixed(2)}</span>
       </div>
-      <div>--------------------------------</div>
+      <Divider />
       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 15 }}>
         <span>Total:</span>
         <span>₹{order.total.toFixed(2)}</span>
       </div>
-      <div>--------------------------------</div>
+      <Divider />
       <div style={{ textAlign: 'center', marginTop: 8 }}>Thank you for your visit!</div>
     </div>
   );

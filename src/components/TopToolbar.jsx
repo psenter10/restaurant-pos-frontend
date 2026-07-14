@@ -1,25 +1,27 @@
 import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { IconSearch, IconChevronDown, IconWallet, IconBell, IconHeadset, IconLogout } from './icons.jsx';
+import { IconMenu, IconChevronDown, IconHeadset, IconLogout, IconDashboard } from './icons.jsx';
+import { getRole, hasPosAccess, revokePosAccess, logout } from '../services/auth.js';
 
-const ADMIN_LINKS = [
+const NAV_LINKS = [
   ['/', 'Tables'],
   ['/kitchen', 'Kitchen'],
-  ['/menu', 'Menu Management'],
-  ['/table-management', 'Table & Floor Management'],
-  ['/reports', 'Reports'],
 ];
 
 export default function TopToolbar({ printerConnected, printerChecked }) {
   const navigate = useNavigate();
   const [navOpen, setNavOpen] = useState(false);
-  const [billNo, setBillNo] = useState('');
+  const isAdminPreview = getRole() === 'admin' && hasPosAccess();
 
   function handleLogout() {
-    localStorage.removeItem('pos_token');
-    sessionStorage.removeItem('pos_token');
+    logout();
     setNavOpen(false);
     navigate('/login');
+  }
+
+  function handleBackToAdmin() {
+    revokePosAccess();
+    navigate('/admin');
   }
 
   return (
@@ -32,14 +34,16 @@ export default function TopToolbar({ printerConnected, printerChecked }) {
         <div className="relative">
           <button
             onClick={() => setNavOpen((v) => !v)}
+            aria-label="Menu"
+            title="Menu"
             className="flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-medium text-ink hover:bg-line/40 whitespace-nowrap"
           >
-            Admin Menu
+            <IconMenu className="w-4 h-4" />
             <IconChevronDown className={`w-3.5 h-3.5 transition-transform ${navOpen ? 'rotate-180' : ''}`} />
           </button>
           {navOpen && (
             <div className="absolute left-0 top-full mt-1 w-48 bg-white border border-line rounded-md shadow-md z-20 py-1">
-              {ADMIN_LINKS.map(([to, label]) => (
+              {NAV_LINKS.map(([to, label]) => (
                 <NavLink
                   key={to}
                   to={to}
@@ -65,20 +69,19 @@ export default function TopToolbar({ printerConnected, printerChecked }) {
           onClick={() => navigate('/')}
           className="flex items-center gap-1.5 bg-rust text-white text-sm font-medium px-4 py-2 rounded-md hover:bg-rust/90 whitespace-nowrap"
         >
-          New Order
+          Table View
         </button>
 
-        <div className="flex items-center gap-2 border border-line rounded-md px-3 py-1.5 text-sm text-ink-soft">
-          <IconSearch className="w-4 h-4" />
-          <input
-            value={billNo}
-            onChange={(e) => setBillNo(e.target.value)}
-            placeholder="Bill No"
-            className="outline-none bg-transparent w-24"
-          />
-        </div>
-
         <div className="flex items-center gap-4 ml-auto pl-4">
+          {isAdminPreview && (
+            <button
+              onClick={handleBackToAdmin}
+              className="flex items-center gap-1.5 bg-amber text-white text-xs font-semibold px-3 py-1.5 rounded-md hover:bg-amber/90 whitespace-nowrap"
+            >
+              <IconDashboard className="w-3.5 h-3.5" />
+              Back to Admin Panel
+            </button>
+          )}
           <div className="flex items-center gap-1.5 text-xs font-mono whitespace-nowrap">
             <span
               className={`status-dot ${
@@ -89,8 +92,6 @@ export default function TopToolbar({ printerConnected, printerChecked }) {
               {!printerChecked ? 'Checking printer…' : printerConnected ? 'Printer ready' : 'Printer offline'}
             </span>
           </div>
-          <IconWallet className="w-5 h-5 text-ink-soft" />
-          <IconBell className="w-5 h-5 text-ink-soft" />
           <div className="flex items-center gap-2 bg-navy text-white rounded-full pl-2 pr-3 py-1 text-xs whitespace-nowrap">
             <IconHeadset className="w-4 h-4" />
             <div className="leading-tight text-left">

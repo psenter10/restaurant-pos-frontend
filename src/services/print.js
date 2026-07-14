@@ -29,6 +29,12 @@ export function formatTime(date) {
   return `${hours}:${minutes} ${ampm}`;
 }
 
+// Compact 24-hour HH:MM used on the on-screen "KOT - {no} Time - {time}"
+// group header in the cart (vs. the 12-hour formatTime used on printouts).
+export function formatKotTime(date) {
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
+
 // Splits "Item Name (variant/addon note)" into the base name and the note,
 // so KOT printouts can show the note on its own line.
 export function splitItemName(name) {
@@ -105,13 +111,18 @@ function buildReceiptLines({ type, restaurant, order, charWidth = 42 }) {
       divider,
       ESC + 'a' + '\x00', // left
       ESC + 'E' + '\x01',
-      pad(`Order #${order.orderNo}`, `${formatDate(now)} ${formatTime(now)}`),
+      pad(`Order #${order.orderNo}`, `Table: ${order.tableName}`),
       ESC + 'E' + '\x00',
-      `Waiter: ${order.waiter || '-'}\n`,
-      `${order.orderType || '-'}\n`,
-      divider,
-      row('Qty', 'Item Name', 'Price', 'Amount')
+      pad(`Date: ${formatDate(now)}`, `Time: ${formatTime(now)}`)
     );
+    if (order.waiter) {
+      lines.push(`Waiter: ${order.waiter}\n`);
+    }
+    lines.push(`${order.orderType || '-'}\n`);
+    if (order.customerName) {
+      lines.push(`Customer: ${order.customerName}\n`);
+    }
+    lines.push(divider, row('Qty', 'Item Name', 'Price', 'Amount'));
 
     order.items.forEach((item) => {
       const { main, note } = splitItemName(item.name);
@@ -123,7 +134,7 @@ function buildReceiptLines({ type, restaurant, order, charWidth = 42 }) {
       divider,
       pad('Sub Total:', `₹${order.subtotal.toFixed(2)}`),
       pad('Discount', `-₹${(order.discount || 0).toFixed(2)}`),
-      pad('GST (5%):', `₹${order.tax.toFixed(2)}`),
+      pad(`GST (${order.taxRate ?? 5}%):`, `₹${order.tax.toFixed(2)}`),
       divider,
       ESC + 'E' + '\x01',
       pad('Total:', `₹${order.total.toFixed(2)}`),
@@ -146,12 +157,16 @@ function buildReceiptLines({ type, restaurant, order, charWidth = 42 }) {
       ESC + 'E' + '\x01',
       pad(`Order #${order.orderNo}`, `Table: ${order.tableName}`),
       ESC + 'E' + '\x00',
-      pad(`Date: ${formatDate(now)}`, `Time: ${formatTime(now)}`),
-      `Waiter: ${order.waiter || '-'}\n`,
-      `Order Type: ${order.orderType || '-'}\n`,
-      divider,
-      pad('Item Name', 'Qty')
+      pad(`Date: ${formatDate(now)}`, `Time: ${formatTime(now)}`)
     );
+    if (order.waiter) {
+      lines.push(`Waiter: ${order.waiter}\n`);
+    }
+    lines.push(`Order Type: ${order.orderType || '-'}\n`);
+    if (order.note) {
+      lines.push(`Note: ${order.note}\n`);
+    }
+    lines.push(divider, pad('Item Name', 'Qty'));
 
     order.items.forEach((item) => {
       const { main, note } = splitItemName(item.name);

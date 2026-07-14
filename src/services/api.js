@@ -40,11 +40,13 @@ export const addOrderItem = (orderId, data) => api.post(`/orders/${orderId}/item
 export const removeOrderItem = (orderId, itemId) => api.delete(`/orders/${orderId}/items/${itemId}`);
 export const closeOrder = (orderId, data) => api.post(`/orders/${orderId}/close`, data);
 
-// --- KOT ---
-export const getPendingKots = () => api.get('/kots?status=pending,preparing');
-export const updateKotStatus = (kotId, status) => api.patch(`/kots/${kotId}`, { status });
-
 // --- Reports ---
 export const getDailySales = (date) => api.get('/reports/daily-sales', { params: { date } });
+
+// --- Admin dashboard ---
+export const getDashboardSummary = () => api.get('/admin/dashboard/summary');
+export const getSalesTrend = (days = 7) => api.get('/admin/dashboard/sales-trend', { params: { days } });
+export const getTopSellingItems = (limit = 5) => api.get('/admin/dashboard/top-items', { params: { limit } });
+export const getPaymentSplit = () => api.get('/admin/dashboard/payment-split');
 
 export default api;

@@ -15,13 +15,10 @@ function makeTables(prefix, start, end, overrides) {
       tables.push({ id: `${prefix}-${n}`, name: `Table ${n}`, status: 'blank' });
       continue;
     }
-    tables.push({
-      id: `${prefix}-${n}`,
-      name: `Table ${n}`,
-      status: override.status,
-      amount: override.amount,
-      occupiedSince: now - override.minutesAgo * 60 * 1000,
-    });
+    const table = { id: `${prefix}-${n}`, name: `Table ${n}`, status: override.status };
+    if (override.amount != null) table.amount = override.amount;
+    if (override.minutesAgo != null) table.occupiedSince = now - override.minutesAgo * 60 * 1000;
+    tables.push(table);
   }
   return tables;
 }
@@ -29,36 +26,41 @@ function makeTables(prefix, start, end, overrides) {
 const SEED_SECTIONS = [
   {
     name: 'A/C',
+    orderType: 'Dine In',
     tables: [
       ...makeTables('ac', 1, 11, {
         2: { status: 'running', amount: 860, minutesAgo: 22 },
         5: { status: 'running', amount: 540, minutesAgo: 10 },
         8: { status: 'running', amount: 1200, minutesAgo: 35 },
-        9: { status: 'paid', amount: 1420, minutesAgo: 50 },
+        9: { status: 'printed', amount: 1420, minutesAgo: 50 },
       }),
       ...makeTables('ac', 12, 22, {
         12: { status: 'running', amount: 320, minutesAgo: 6 },
         14: { status: 'printed', amount: 980, minutesAgo: 40 },
-        19: { status: 'paid', amount: 1650, minutesAgo: 65 },
+        19: { status: 'printed', amount: 1650, minutesAgo: 65 },
       }),
       ...makeTables('ac', 23, 28, {
         26: { status: 'printed', amount: 750, minutesAgo: 28 },
-        27: { status: 'paid', amount: 890, minutesAgo: 44 },
-        28: { status: 'paid', amount: 315, minutesAgo: 15 },
+        27: { status: 'printed', amount: 890, minutesAgo: 44 },
+        28: { status: 'printed', amount: 315, minutesAgo: 15 },
       }),
     ],
   },
   {
     name: 'Non A/C',
+    orderType: 'Dine In',
     tables: makeTables('nac', 1, 9, {
-      2: { status: 'paid', amount: 640, minutesAgo: 20 },
-      5: { status: 'paid', amount: 410, minutesAgo: 12 },
-      8: { status: 'paid', amount: 980, minutesAgo: 33 },
+      2: { status: 'printed', amount: 640, minutesAgo: 20 },
+      5: { status: 'printed', amount: 410, minutesAgo: 12 },
+      8: { status: 'printed', amount: 980, minutesAgo: 33 },
     }),
   },
   {
     name: 'Bar',
-    tables: makeTables('bar', 1, 6, {}),
+    orderType: 'Dine In',
+    tables: makeTables('bar', 1, 6, {
+      3: { status: 'reserved' },
+    }),
   },
 ];
 
@@ -95,7 +97,7 @@ export function TableProvider({ children }) {
   function addSection(name) {
     const trimmed = name.trim();
     if (!trimmed || sections.some((s) => s.name === trimmed)) return;
-    setSections((prev) => [...prev, { name: trimmed, tables: [] }]);
+    setSections((prev) => [...prev, { name: trimmed, orderType: 'Dine In', tables: [] }]);
   }
 
   function renameSection(oldName, newName) {
@@ -104,8 +106,18 @@ export function TableProvider({ children }) {
     setSections((prev) => prev.map((s) => (s.name === oldName ? { ...s, name: trimmed } : s)));
   }
 
+  function setSectionOrderType(sectionName, orderType) {
+    setSections((prev) => prev.map((s) => (s.name === sectionName ? { ...s, orderType } : s)));
+  }
+
   function deleteSection(name) {
     setSections((prev) => prev.filter((s) => s.name !== name));
+  }
+
+  function toggleSectionAvailability(name) {
+    setSections((prev) =>
+      prev.map((s) => (s.name === name ? { ...s, available: s.available === false } : s))
+    );
   }
 
   function addTable(sectionName, tableName, capacity) {
@@ -145,6 +157,21 @@ export function TableProvider({ children }) {
     );
   }
 
+  function toggleTableAvailability(sectionName, tableId) {
+    setSections((prev) =>
+      prev.map((s) =>
+        s.name === sectionName
+          ? {
+              ...s,
+              tables: s.tables.map((t) =>
+                t.id === tableId ? { ...t, available: t.available === false } : t
+              ),
+            }
+          : s
+      )
+    );
+  }
+
   return (
     <TableContext.Provider
       value={{
@@ -152,9 +179,12 @@ export function TableProvider({ children }) {
         addSection,
         renameSection,
         deleteSection,
+        toggleSectionAvailability,
+        setSectionOrderType,
         addTable,
         updateTable,
         removeTable,
+        toggleTableAvailability,
       }}
     >
       {children}

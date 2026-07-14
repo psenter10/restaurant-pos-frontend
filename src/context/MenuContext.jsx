@@ -5,10 +5,10 @@ const STORAGE_KEY = 'pos_menu_data';
 
 // Seed data so the app renders before the CI4 API + admin edits are in place.
 const SEED_GROUPS = [
-  { name: 'Fast Food', categories: ['Burgers', 'Egg', 'Hawaiian Wraps', 'Maggi Lover', 'Pizza'] },
-  { name: 'Starters', categories: ['Chakhna', 'Chinese Snacks', 'Garlic Bread'] },
-  { name: 'Main Course', categories: ['Chicken', 'Gravy Items', 'Chinese Soups'] },
-  { name: 'Beverages', categories: ['Beverages'] },
+  { name: 'Fast Food', categories: ['Burgers', 'Egg', 'Hawaiian Wraps', 'Maggi Lover', 'Pizza'], available: true },
+  { name: 'Starters', categories: ['Chakhna', 'Chinese Snacks', 'Garlic Bread'], available: true },
+  { name: 'Main Course', categories: ['Chicken', 'Gravy Items', 'Chinese Soups'], available: true },
+  { name: 'Beverages', categories: ['Beverages'], available: true },
 ];
 
 const SEED_ITEMS = [
@@ -67,12 +67,14 @@ function loadInitial() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed.groups && parsed.items && parsed.categories) return parsed;
+      if (parsed.groups && parsed.items && parsed.categories) {
+        return { categoryAvailability: {}, ...parsed };
+      }
     }
   } catch {
     // ignore corrupt storage, fall back to seed data
   }
-  return { groups: SEED_GROUPS, items: SEED_ITEMS, categories: SEED_CATEGORIES };
+  return { groups: SEED_GROUPS, items: SEED_ITEMS, categories: SEED_CATEGORIES, categoryAvailability: {} };
 }
 
 const MenuContext = createContext(null);
@@ -82,6 +84,9 @@ export function MenuProvider({ children }) {
   const [groups, setGroups] = useState(initial.groups);
   const [items, setItems] = useState(initial.items);
   const [categories, setCategories] = useState(initial.categories);
+  // Categories stay plain strings (items/groups reference them by name), so
+  // availability lives in a parallel name→bool map instead of on the string.
+  const [categoryAvailability, setCategoryAvailability] = useState(initial.categoryAvailability);
 
   useEffect(() => {
     getMenuItems()
@@ -92,8 +97,8 @@ export function MenuProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items, categories }));
-  }, [groups, items, categories]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items, categories, categoryAvailability }));
+  }, [groups, items, categories, categoryAvailability]);
 
   function addItem(data) {
     const newItem = { available: true, veg: true, ...data, id: Date.now() };
@@ -132,18 +137,35 @@ export function MenuProvider({ children }) {
         categories: g.categories.map((c) => (c === oldName ? trimmed : c)),
       }))
     );
+    setCategoryAvailability((prev) => {
+      if (!(oldName in prev)) return prev;
+      const { [oldName]: value, ...rest } = prev;
+      return { ...rest, [trimmed]: value };
+    });
   }
 
   function deleteCategory(name) {
     setCategories((prev) => prev.filter((c) => c !== name));
     setItems((prev) => prev.filter((i) => i.category !== name));
     setGroups((prev) => prev.map((g) => ({ ...g, categories: g.categories.filter((c) => c !== name) })));
+    setCategoryAvailability((prev) => {
+      const { [name]: _removed, ...rest } = prev;
+      return rest;
+    });
+  }
+
+  function isCategoryAvailable(name) {
+    return categoryAvailability[name] !== false;
+  }
+
+  function toggleCategoryAvailability(name) {
+    setCategoryAvailability((prev) => ({ ...prev, [name]: prev[name] === false }));
   }
 
   function addGroup(name) {
     const trimmed = name.trim();
     if (!trimmed || groups.some((g) => g.name === trimmed)) return;
-    setGroups((prev) => [...prev, { name: trimmed, categories: [] }]);
+    setGroups((prev) => [...prev, { name: trimmed, categories: [], available: true }]);
   }
 
   function renameGroup(oldName, newName) {
@@ -154,6 +176,12 @@ export function MenuProvider({ children }) {
 
   function deleteGroup(name) {
     setGroups((prev) => prev.filter((g) => g.name !== name));
+  }
+
+  function toggleGroupAvailability(name) {
+    setGroups((prev) =>
+      prev.map((g) => (g.name === name ? { ...g, available: g.available === false } : g))
+    );
   }
 
   function addCategoryToGroup(groupName, categoryName) {
@@ -187,9 +215,12 @@ export function MenuProvider({ children }) {
         addCategory,
         renameCategory,
         deleteCategory,
+        isCategoryAvailable,
+        toggleCategoryAvailability,
         addGroup,
         renameGroup,
         deleteGroup,
+        toggleGroupAvailability,
         addCategoryToGroup,
         removeCategoryFromGroup,
       }}

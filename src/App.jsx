@@ -3,18 +3,18 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-route
 import TablesPage from './pages/TablesPage.jsx';
 import OrderPage from './pages/OrderPage.jsx';
 import KotPage from './pages/KotPage.jsx';
-import MenuPage from './pages/MenuPage.jsx';
-import TableManagementPage from './pages/TableManagementPage.jsx';
-import ReportsPage from './pages/ReportsPage.jsx';
 import LoginPage from './pages/LoginPage.jsx';
 import useQzTray from './hooks/useQzTray.js';
 import TopToolbar from './components/TopToolbar.jsx';
+import AdminLayout from './components/AdminLayout.jsx';
 import { MenuProvider } from './context/MenuContext.jsx';
 import { TableProvider } from './context/TableContext.jsx';
-
-function isAuthenticated() {
-  return Boolean(localStorage.getItem('pos_token') || sessionStorage.getItem('pos_token'));
-}
+import { LiveOrderProvider } from './context/LiveOrderContext.jsx';
+import { KotProvider } from './context/KotContext.jsx';
+import { SettingsProvider } from './context/SettingsContext.jsx';
+import { UserProvider } from './context/UserContext.jsx';
+import { WaiterProvider } from './context/WaiterContext.jsx';
+import { isAuthenticated, getRole, hasPosAccess } from './services/auth.js';
 
 function RequireAuth({ children }) {
   const location = useLocation();
@@ -22,6 +22,16 @@ function RequireAuth({ children }) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
   return children;
+}
+
+// Each role only ever sees its own realm: a POS user hitting /admin/* bounces
+// to the table view, and an admin hitting the POS routes bounces to /admin —
+// unless the admin has hit "POS Access" to operate the counter themselves.
+function RequireRole({ role, children }) {
+  const currentRole = getRole();
+  if (currentRole === role) return children;
+  if (role === 'pos' && currentRole === 'admin' && hasPosAccess()) return children;
+  return <Navigate to={currentRole === 'admin' ? '/admin' : '/'} replace />;
 }
 
 function AppLayout() {
@@ -36,9 +46,6 @@ function AppLayout() {
           <Route path="/" element={<TablesPage />} />
           <Route path="/order/:tableId" element={<OrderPage />} />
           <Route path="/kitchen" element={<KotPage />} />
-          <Route path="/menu" element={<MenuPage />} />
-          <Route path="/table-management" element={<TableManagementPage />} />
-          <Route path="/reports" element={<ReportsPage />} />
         </Routes>
       </main>
     </div>
@@ -54,11 +61,38 @@ export default function App() {
           path="/*"
           element={
             <RequireAuth>
-              <MenuProvider>
-                <TableProvider>
-                  <AppLayout />
-                </TableProvider>
-              </MenuProvider>
+              <SettingsProvider>
+                <UserProvider>
+                  <WaiterProvider>
+                    <MenuProvider>
+                      <TableProvider>
+                        <LiveOrderProvider>
+                          <KotProvider>
+                            <Routes>
+                              <Route
+                                path="/admin/*"
+                                element={
+                                  <RequireRole role="admin">
+                                    <AdminLayout />
+                                  </RequireRole>
+                                }
+                              />
+                              <Route
+                                path="/*"
+                                element={
+                                  <RequireRole role="pos">
+                                    <AppLayout />
+                                  </RequireRole>
+                                }
+                              />
+                            </Routes>
+                          </KotProvider>
+                        </LiveOrderProvider>
+                      </TableProvider>
+                    </MenuProvider>
+                  </WaiterProvider>
+                </UserProvider>
+              </SettingsProvider>
             </RequireAuth>
           }
         />

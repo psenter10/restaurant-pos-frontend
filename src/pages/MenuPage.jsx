@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import { useMenu } from '../context/MenuContext.jsx';
 import ItemFormModal from '../components/ItemFormModal.jsx';
-import { IconPlus, IconTrash, IconSearch } from '../components/icons.jsx';
+import ItemVariantsInfoModal from '../components/ItemVariantsInfoModal.jsx';
+import ConfirmModal from '../components/ConfirmModal.jsx';
+import ToggleSwitch from '../components/ToggleSwitch.jsx';
+import StatRow from '../components/StatRow.jsx';
+import IconTextButton from '../components/IconTextButton.jsx';
+import { IconPlus, IconTrash, IconSearch, IconEdit, IconEye } from '../components/icons.jsx';
 
 const TABS = ['Items', 'Categories', 'Groups'];
 
@@ -40,10 +45,13 @@ function ItemsTab() {
   const [search, setSearch] = useState('');
   const [modalItem, setModalItem] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [infoItem, setInfoItem] = useState(null);
+  const [confirmAction, setConfirmAction] = useState(null); // { type: 'delete' | 'deactivate', item }
 
   const filtered = search.trim()
     ? items.filter((i) => i.name.toLowerCase().includes(search.trim().toLowerCase()))
     : items;
+  const availableCount = items.filter((i) => i.available !== false).length;
 
   function handleSave(data) {
     if (modalItem) {
@@ -55,8 +63,31 @@ function ItemsTab() {
     }
   }
 
+  function handleToggleAvailable(item) {
+    if (item.available === false) {
+      toggleAvailability(item.id); // re-activating needs no confirmation
+    } else {
+      setConfirmAction({ type: 'deactivate', item });
+    }
+  }
+
+  function runConfirmedAction() {
+    if (!confirmAction) return;
+    if (confirmAction.type === 'delete') removeItem(confirmAction.item.id);
+    else toggleAvailability(confirmAction.item.id);
+    setConfirmAction(null);
+  }
+
   return (
     <div>
+      <StatRow
+        stats={[
+          { label: 'Total Items', value: items.length },
+          { label: 'Available', value: availableCount, tone: 'text-sage' },
+          { label: 'Unavailable', value: items.length - availableCount, tone: 'text-rust' },
+        ]}
+      />
+
       <div className="flex items-center gap-3 mb-4">
         <div className="flex items-center gap-2 border border-line rounded-md px-3 py-2 flex-1 max-w-sm bg-white">
           <IconSearch className="w-4 h-4 text-ink-soft" />
@@ -85,6 +116,7 @@ function ItemsTab() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {filtered.map((item) => {
           const unavailable = item.available === false;
+          const hasExtras = item.variants?.length > 0 || item.addons?.length > 0;
           return (
             <div
               key={item.id}
@@ -103,37 +135,32 @@ function ItemsTab() {
                   <div className="text-xs text-ink-soft font-mono mt-1">
                     {item.category} · ₹{Number(item.price).toFixed(2)}
                   </div>
-                  {item.variants?.length > 0 && (
-                    <div className="text-[11px] text-ink-soft mt-1">
-                      {item.variants.length} variation{item.variants.length > 1 ? 's' : ''}
-                      {item.addons?.length ? `, ${item.addons.length} addons` : ''}
-                    </div>
+                  {hasExtras && (
+                    <button
+                      onClick={() => setInfoItem(item)}
+                      className="flex items-center gap-1 text-[11px] text-navy font-medium mt-1.5 bg-navy/5 hover:bg-navy/10 rounded-full px-2 py-0.5"
+                    >
+                      <IconEye className="w-3 h-3" />
+                      {item.variants?.length ? `${item.variants.length} variation${item.variants.length > 1 ? 's' : ''}` : ''}
+                      {item.variants?.length && item.addons?.length ? ' · ' : ''}
+                      {item.addons?.length ? `${item.addons.length} addon${item.addons.length > 1 ? 's' : ''}` : ''}
+                    </button>
                   )}
                 </div>
-                <button
-                  onClick={() => removeItem(item.id)}
-                  className="text-rust hover:text-rust/80 shrink-0"
-                  aria-label={`Delete ${item.name}`}
-                >
-                  <IconTrash className="w-4 h-4" />
-                </button>
+                <ToggleSwitch checked={!unavailable} onChange={() => handleToggleAvailable(item)} />
               </div>
 
-              <div className="flex items-center justify-between mt-3 pt-2 border-t border-line/60">
-                <label className="flex items-center gap-1.5 text-xs text-ink-soft">
-                  <input
-                    type="checkbox"
-                    checked={!unavailable}
-                    onChange={() => toggleAvailability(item.id)}
-                  />
-                  {unavailable ? 'Unavailable' : 'Available'}
-                </label>
-                <button
-                  onClick={() => setModalItem(item)}
-                  className="text-navy text-xs font-medium hover:underline"
-                >
+              <div className="flex items-center gap-2 mt-3 pt-2 border-t border-line/60">
+                <IconTextButton icon={IconEdit} tone="navy" onClick={() => setModalItem(item)}>
                   Edit
-                </button>
+                </IconTextButton>
+                <IconTextButton
+                  icon={IconTrash}
+                  tone="rust"
+                  onClick={() => setConfirmAction({ type: 'delete', item })}
+                >
+                  Delete
+                </IconTextButton>
               </div>
             </div>
           );
@@ -154,15 +181,42 @@ function ItemsTab() {
           onSave={handleSave}
         />
       )}
+
+      {infoItem && <ItemVariantsInfoModal item={infoItem} onClose={() => setInfoItem(null)} />}
+
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.type === 'delete' ? 'Delete item?' : 'Mark item unavailable?'}
+          message={
+            confirmAction.type === 'delete'
+              ? `"${confirmAction.item.name}" will be permanently removed from the menu.`
+              : `"${confirmAction.item.name}" will be hidden from the order screen until you turn it back on.`
+          }
+          confirmLabel={confirmAction.type === 'delete' ? 'Delete' : 'Mark Unavailable'}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={runConfirmedAction}
+        />
+      )}
     </div>
   );
 }
 
 function CategoriesTab() {
-  const { categories, items, addCategory, renameCategory, deleteCategory } = useMenu();
+  const {
+    categories,
+    items,
+    addCategory,
+    renameCategory,
+    deleteCategory,
+    isCategoryAvailable,
+    toggleCategoryAvailability,
+  } = useMenu();
   const [newCategory, setNewCategory] = useState('');
   const [editingCategory, setEditingCategory] = useState(null);
   const [editValue, setEditValue] = useState('');
+  const [confirmAction, setConfirmAction] = useState(null); // { type: 'delete' | 'deactivate', name }
+
+  const availableCount = categories.filter((c) => isCategoryAvailable(c)).length;
 
   function handleAdd(e) {
     e.preventDefault();
@@ -183,8 +237,31 @@ function CategoriesTab() {
     setEditingCategory(null);
   }
 
+  function handleToggleAvailable(name) {
+    if (!isCategoryAvailable(name)) {
+      toggleCategoryAvailability(name);
+    } else {
+      setConfirmAction({ type: 'deactivate', name });
+    }
+  }
+
+  function runConfirmedAction() {
+    if (!confirmAction) return;
+    if (confirmAction.type === 'delete') deleteCategory(confirmAction.name);
+    else toggleCategoryAvailability(confirmAction.name);
+    setConfirmAction(null);
+  }
+
   return (
     <div>
+      <StatRow
+        stats={[
+          { label: 'Total Categories', value: categories.length },
+          { label: 'Available', value: availableCount, tone: 'text-sage' },
+          { label: 'Unavailable', value: categories.length - availableCount, tone: 'text-rust' },
+        ]}
+      />
+
       <form onSubmit={handleAdd} className="flex items-center gap-2 mb-4 max-w-lg">
         <input
           value={newCategory}
@@ -200,48 +277,79 @@ function CategoriesTab() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {categories.map((cat) => {
           const count = items.filter((i) => i.category === cat).length;
+          const available = isCategoryAvailable(cat);
           return (
-            <div key={cat} className="ticket-card bg-white p-3 flex items-center justify-between">
-              {editingCategory === cat ? (
-                <input
-                  autoFocus
-                  value={editValue}
-                  onChange={(e) => setEditValue(e.target.value)}
-                  onBlur={commitEdit}
-                  onKeyDown={(e) => e.key === 'Enter' && commitEdit()}
-                  className="flex-1 border border-line rounded-md px-2 py-1 text-sm outline-none mr-2"
-                />
-              ) : (
-                <button onClick={() => startEdit(cat)} className="text-sm font-medium text-left hover:underline truncate">
-                  {cat}
-                </button>
-              )}
-              <div className="flex items-center gap-3 shrink-0">
+            <div key={cat} className={`ticket-card p-3 ${available ? 'bg-white' : 'bg-line/20'}`}>
+              <div className="flex items-center justify-between gap-2">
+                {editingCategory === cat ? (
+                  <input
+                    autoFocus
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={commitEdit}
+                    onKeyDown={(e) => e.key === 'Enter' && commitEdit()}
+                    className="flex-1 border border-line rounded-md px-2 py-1 text-sm outline-none mr-2"
+                  />
+                ) : (
+                  <span className={`text-sm font-medium truncate ${available ? '' : 'text-ink-soft'}`}>{cat}</span>
+                )}
+                <ToggleSwitch checked={available} onChange={() => handleToggleAvailable(cat)} />
+              </div>
+              <div className="flex items-center justify-between mt-3 pt-2 border-t border-line/60">
                 <span className="text-xs text-ink-soft font-mono">{count} item{count === 1 ? '' : 's'}</span>
-                <button
-                  onClick={() => deleteCategory(cat)}
-                  className="text-rust hover:text-rust/80"
-                  aria-label={`Delete ${cat}`}
-                  title="Deletes this category and its items"
-                >
-                  <IconTrash className="w-4 h-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <IconTextButton icon={IconEdit} tone="navy" onClick={() => startEdit(cat)}>
+                    Edit
+                  </IconTextButton>
+                  <IconTextButton
+                    icon={IconTrash}
+                    tone="rust"
+                    onClick={() => setConfirmAction({ type: 'delete', name: cat })}
+                  >
+                    Delete
+                  </IconTextButton>
+                </div>
               </div>
             </div>
           );
         })}
         {categories.length === 0 && <p className="text-sm text-ink-soft">No categories yet.</p>}
       </div>
+
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.type === 'delete' ? 'Delete category?' : 'Mark category unavailable?'}
+          message={
+            confirmAction.type === 'delete'
+              ? `"${confirmAction.name}" and all its items will be permanently removed.`
+              : `"${confirmAction.name}" will be hidden until you turn it back on.`
+          }
+          confirmLabel={confirmAction.type === 'delete' ? 'Delete' : 'Mark Unavailable'}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={runConfirmedAction}
+        />
+      )}
     </div>
   );
 }
 
 function GroupsTab() {
-  const { groups, categories, addGroup, renameGroup, deleteGroup, addCategoryToGroup, removeCategoryFromGroup } =
-    useMenu();
+  const {
+    groups,
+    categories,
+    addGroup,
+    renameGroup,
+    deleteGroup,
+    toggleGroupAvailability,
+    addCategoryToGroup,
+    removeCategoryFromGroup,
+  } = useMenu();
   const [newGroup, setNewGroup] = useState('');
   const [editingGroup, setEditingGroup] = useState(null);
   const [editValue, setEditValue] = useState('');
+  const [confirmAction, setConfirmAction] = useState(null); // { type: 'delete' | 'deactivate', name }
+
+  const availableCount = groups.filter((g) => g.available !== false).length;
 
   function handleAdd(e) {
     e.preventDefault();
@@ -262,8 +370,31 @@ function GroupsTab() {
     setEditingGroup(null);
   }
 
+  function handleToggleAvailable(group) {
+    if (group.available === false) {
+      toggleGroupAvailability(group.name);
+    } else {
+      setConfirmAction({ type: 'deactivate', name: group.name });
+    }
+  }
+
+  function runConfirmedAction() {
+    if (!confirmAction) return;
+    if (confirmAction.type === 'delete') deleteGroup(confirmAction.name);
+    else toggleGroupAvailability(confirmAction.name);
+    setConfirmAction(null);
+  }
+
   return (
     <div>
+      <StatRow
+        stats={[
+          { label: 'Total Groups', value: groups.length },
+          { label: 'Available', value: availableCount, tone: 'text-sage' },
+          { label: 'Unavailable', value: groups.length - availableCount, tone: 'text-rust' },
+        ]}
+      />
+
       <form onSubmit={handleAdd} className="flex items-center gap-2 mb-4 max-w-lg">
         <input
           value={newGroup}
@@ -279,9 +410,10 @@ function GroupsTab() {
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
         {groups.map((group) => {
           const unassigned = categories.filter((c) => !group.categories.includes(c));
+          const available = group.available !== false;
           return (
-            <div key={group.name} className="ticket-card bg-white p-4">
-              <div className="flex items-center justify-between mb-3">
+            <div key={group.name} className={`ticket-card p-4 ${available ? 'bg-white' : 'bg-line/20'}`}>
+              <div className="flex items-center justify-between mb-3 gap-2">
                 {editingGroup === group.name ? (
                   <input
                     autoFocus
@@ -292,20 +424,9 @@ function GroupsTab() {
                     className="border border-line rounded-md px-2 py-1 text-sm font-semibold outline-none"
                   />
                 ) : (
-                  <button
-                    onClick={() => startEdit(group.name)}
-                    className="font-display font-semibold hover:underline"
-                  >
-                    {group.name}
-                  </button>
+                  <span className={`font-display font-semibold ${available ? '' : 'text-ink-soft'}`}>{group.name}</span>
                 )}
-                <button
-                  onClick={() => deleteGroup(group.name)}
-                  className="text-rust hover:text-rust/80"
-                  aria-label={`Delete ${group.name}`}
-                >
-                  <IconTrash className="w-4 h-4" />
-                </button>
+                <ToggleSwitch checked={available} onChange={() => handleToggleAvailable(group)} />
               </div>
 
               <div className="flex flex-wrap gap-2 mb-3">
@@ -333,7 +454,7 @@ function GroupsTab() {
                 <select
                   value=""
                   onChange={(e) => e.target.value && addCategoryToGroup(group.name, e.target.value)}
-                  className="border border-line rounded-md px-2.5 py-1.5 text-xs outline-none bg-white"
+                  className="border border-line rounded-md px-2.5 py-1.5 text-xs outline-none bg-white mb-3"
                 >
                   <option value="">+ Add category to this group</option>
                   {unassigned.map((cat) => (
@@ -343,11 +464,38 @@ function GroupsTab() {
                   ))}
                 </select>
               )}
+
+              <div className="flex items-center gap-2 pt-2 border-t border-line/60">
+                <IconTextButton icon={IconEdit} tone="navy" onClick={() => startEdit(group.name)}>
+                  Edit
+                </IconTextButton>
+                <IconTextButton
+                  icon={IconTrash}
+                  tone="rust"
+                  onClick={() => setConfirmAction({ type: 'delete', name: group.name })}
+                >
+                  Delete
+                </IconTextButton>
+              </div>
             </div>
           );
         })}
         {groups.length === 0 && <p className="text-sm text-ink-soft">No menu groups yet.</p>}
       </div>
+
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction.type === 'delete' ? 'Delete group?' : 'Mark group unavailable?'}
+          message={
+            confirmAction.type === 'delete'
+              ? `"${confirmAction.name}" will be permanently removed. Its categories and items are unaffected.`
+              : `"${confirmAction.name}" will be hidden until you turn it back on.`
+          }
+          confirmLabel={confirmAction.type === 'delete' ? 'Delete' : 'Mark Unavailable'}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={runConfirmedAction}
+        />
+      )}
     </div>
   );
 }

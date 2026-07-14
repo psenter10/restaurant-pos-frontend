@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { login } from '../services/api.js';
+import { validateCredentials } from '../context/UserContext.jsx';
+import { setSession } from '../services/auth.js';
 import { IconCutlery, IconEye, IconEyeOff, IconLock, IconUser, IconHeadset } from '../components/icons.jsx';
 
 const FEATURES = [
@@ -31,24 +33,44 @@ export default function LoginPage() {
 
     setLoading(true);
     let token;
+    let role;
     try {
       const res = await login(username.trim(), password);
       token = res.data.token;
+      role = res.data.role;
     } catch {
-      // CI4 auth endpoint not connected yet — accept any credentials so the
-      // rest of the UI stays usable. Swap this out once /auth/login is live.
-      token = 'demo-token';
+      // CI4 auth endpoint not connected yet. Until it's live: "admin" is the
+      // demo way to reach the Admin Panel, and any other login is checked
+      // against the POS accounts the admin has created (see Admin Panel →
+      // User Management / UserContext.jsx).
+      const trimmed = username.trim();
+      if (trimmed.toLowerCase() === 'admin') {
+        token = 'demo-token';
+        role = 'admin';
+      } else {
+        const result = validateCredentials(trimmed, password);
+        if (result.ok) {
+          token = 'demo-token';
+          role = 'pos';
+        } else {
+          setLoading(false);
+          setError(
+            result.reason === 'inactive'
+              ? 'This account has been deactivated. Contact your admin.'
+              : 'Invalid username or password.'
+          );
+          return;
+        }
+      }
     }
     setLoading(false);
 
-    if (remember) {
-      localStorage.setItem('pos_token', token);
-    } else {
-      sessionStorage.setItem('pos_token', token);
-    }
+    setSession(token, role, remember);
 
-    const redirectTo = location.state?.from?.pathname || '/';
-    navigate(redirectTo, { replace: true });
+    const from = location.state?.from?.pathname;
+    const roleHome = role === 'admin' ? '/admin' : '/';
+    const sameRealm = from && (role === 'admin' ? from.startsWith('/admin') : !from.startsWith('/admin'));
+    navigate(sameRealm ? from : roleHome, { replace: true });
   }
 
   return (
@@ -163,8 +185,10 @@ export default function LoginPage() {
             </form>
 
             <p className="text-xs text-ink-soft/70 mt-6 text-center">
-              Demo mode — any username/password works until the CI4 <code>/auth/login</code>{' '}
-              endpoint is connected.
+              Demo mode until the CI4 <code>/auth/login</code> endpoint is connected. Sign in as{' '}
+              <code>admin</code> (any password) for the Admin Panel, or <code>counter1</code> /{' '}
+              <code>pos123</code> for the counter (POS) — manage more POS logins from Admin Panel →
+              User Management.
             </p>
           </div>
         </div>
