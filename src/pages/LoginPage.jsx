@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { login } from '../services/api.js';
-import { validateCredentials } from '../context/UserContext.jsx';
 import { setSession } from '../services/auth.js';
 import { IconCutlery, IconEye, IconEyeOff, IconLock, IconUser, IconHeadset } from '../components/icons.jsx';
+import logo from '../assets/logo.png';
 
 const FEATURES = [
   'Fast table-side billing and KOT printing',
@@ -32,45 +32,20 @@ export default function LoginPage() {
     }
 
     setLoading(true);
-    let token;
-    let role;
     try {
       const res = await login(username.trim(), password);
-      token = res.data.token;
-      role = res.data.role;
-    } catch {
-      // CI4 auth endpoint not connected yet. Until it's live: "admin" is the
-      // demo way to reach the Admin Panel, and any other login is checked
-      // against the POS accounts the admin has created (see Admin Panel →
-      // User Management / UserContext.jsx).
-      const trimmed = username.trim();
-      if (trimmed.toLowerCase() === 'admin') {
-        token = 'demo-token';
-        role = 'admin';
-      } else {
-        const result = validateCredentials(trimmed, password);
-        if (result.ok) {
-          token = 'demo-token';
-          role = 'pos';
-        } else {
-          setLoading(false);
-          setError(
-            result.reason === 'inactive'
-              ? 'This account has been deactivated. Contact your admin.'
-              : 'Invalid username or password.'
-          );
-          return;
-        }
-      }
+      const { token, role } = res.data;
+      setSession(token, role, remember);
+
+      const from = location.state?.from?.pathname;
+      const roleHome = role === 'admin' ? '/admin' : '/';
+      const sameRealm = from && (role === 'admin' ? from.startsWith('/admin') : !from.startsWith('/admin'));
+      navigate(sameRealm ? from : roleHome, { replace: true });
+    } catch (err) {
+      setError(err.response?.data?.message || 'Unable to sign in. Please check your connection and try again.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-
-    setSession(token, role, remember);
-
-    const from = location.state?.from?.pathname;
-    const roleHome = role === 'admin' ? '/admin' : '/';
-    const sameRealm = from && (role === 'admin' ? from.startsWith('/admin') : !from.startsWith('/admin'));
-    navigate(sameRealm ? from : roleHome, { replace: true });
   }
 
   return (
@@ -78,10 +53,10 @@ export default function LoginPage() {
       <div className="hidden lg:flex flex-col justify-between w-[42%] bg-navy text-white p-12 relative overflow-hidden">
         <IconCutlery className="absolute -right-10 -bottom-10 w-72 h-72 text-white/5" />
 
-        <div className="relative">
-          <span className="font-display font-bold text-2xl tracking-tight">
-            Counter<span className="text-rust">POS</span>
-          </span>
+        <div className="relative flex justify-center">
+          <div className="bg-white rounded-md px-3 py-2">
+            <img src={logo} alt="Lavanya Plaza" className="h-8 w-auto" />
+          </div>
         </div>
 
         <div className="relative space-y-6">
@@ -100,17 +75,16 @@ export default function LoginPage() {
           </ul>
         </div>
 
-        <div className="relative text-xs text-white/50">
-          &copy; {new Date().getFullYear()} CounterPOS. Single-restaurant billing made easy.
+        <div className="relative text-xs text-white/50 space-y-1">
+          <div>&copy; {new Date().getFullYear()} CounterPOS. Single-restaurant billing made easy.</div>
+          <div>Design &amp; Developed by : Layoncube</div>
         </div>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-6">
         <div className="w-full max-w-sm">
           <div className="lg:hidden text-center mb-6 animate-fade-in">
-            <span className="font-display font-bold text-2xl tracking-tight">
-              Counter<span className="text-rust">POS</span>
-            </span>
+            <img src={logo} alt="Lavanya Plaza" className="h-9 w-auto mx-auto" />
           </div>
 
           <div className="bg-white rounded-xl shadow-xl border border-line/60 p-8 animate-fade-in-up">
@@ -161,7 +135,7 @@ export default function LoginPage() {
 
               {error && <p className="text-xs text-rust animate-fade-in">{error}</p>}
 
-              <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center text-xs">
                 <label className="flex items-center gap-1.5 text-ink-soft">
                   <input
                     type="checkbox"
@@ -170,9 +144,6 @@ export default function LoginPage() {
                   />
                   Keep me signed in
                 </label>
-                <button type="button" className="text-navy hover:underline">
-                  Forgot password?
-                </button>
               </div>
 
               <button
@@ -185,10 +156,7 @@ export default function LoginPage() {
             </form>
 
             <p className="text-xs text-ink-soft/70 mt-6 text-center">
-              Demo mode until the CI4 <code>/auth/login</code> endpoint is connected. Sign in as{' '}
-              <code>admin</code> (any password) for the Admin Panel, or <code>counter1</code> /{' '}
-              <code>pos123</code> for the counter (POS) — manage more POS logins from Admin Panel →
-              User Management.
+              In case of forgot password, contact your admin.
             </p>
           </div>
         </div>

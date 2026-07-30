@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useSettings } from '../context/SettingsContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
 import ConfirmModal from '../components/ConfirmModal.jsx';
 import { IconWallet, IconReceipt } from '../components/icons.jsx';
 
@@ -17,43 +19,63 @@ const inputClass = 'w-full border border-line rounded-md px-3 py-2 text-sm outli
 
 export default function AdminSettingsPage() {
   const { settings, updateSettings } = useSettings();
+  const { showSuccess, showError } = useToast();
   const [draft, setDraft] = useState(settings);
-  const [savedTax, setSavedTax] = useState(false);
-  const [savedReceipt, setSavedReceipt] = useState(false);
   const [confirmingTax, setConfirmingTax] = useState(false);
   const [confirmingReceipt, setConfirmingReceipt] = useState(false);
+  const [savingTax, setSavingTax] = useState(false);
+  const [savingReceipt, setSavingReceipt] = useState(false);
 
-  function set(field, value, group) {
+  function set(field, value) {
     setDraft((prev) => ({ ...prev, [field]: value }));
-    if (group === 'tax') setSavedTax(false);
-    else setSavedReceipt(false);
   }
 
   function handleSubmitTax(e) {
     e.preventDefault();
+    const rate = Number(draft.taxRate);
+    if (draft.taxRate === '' || Number.isNaN(rate) || rate < 0 || rate > 100) {
+      showError('Enter a valid tax rate between 0 and 100.');
+      return;
+    }
     setConfirmingTax(true);
   }
 
-  function confirmSaveTax() {
-    updateSettings({ taxRate: Number(draft.taxRate) || 0 });
-    setSavedTax(true);
+  async function confirmSaveTax() {
+    setSavingTax(true);
+    try {
+      await updateSettings({ taxRate: Number(draft.taxRate) });
+      showSuccess('Tax rate saved.');
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not save the tax rate. Please try again.'));
+    }
+    setSavingTax(false);
     setConfirmingTax(false);
   }
 
   function handleSubmitReceipt(e) {
     e.preventDefault();
+    if (!draft.restaurantName.trim()) {
+      showError('Enter a restaurant name.');
+      return;
+    }
     setConfirmingReceipt(true);
   }
 
-  function confirmSaveReceipt() {
-    updateSettings({
-      restaurantName: draft.restaurantName,
-      addressLine1: draft.addressLine1,
-      addressLine2: draft.addressLine2,
-      phone: draft.phone,
-      gstin: draft.gstin,
-    });
-    setSavedReceipt(true);
+  async function confirmSaveReceipt() {
+    setSavingReceipt(true);
+    try {
+      await updateSettings({
+        restaurantName: draft.restaurantName,
+        addressLine1: draft.addressLine1,
+        addressLine2: draft.addressLine2,
+        phone: draft.phone,
+        gstin: draft.gstin,
+      });
+      showSuccess('Receipt details saved.');
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not save the receipt details. Please try again.'));
+    }
+    setSavingReceipt(false);
     setConfirmingReceipt(false);
   }
 
@@ -78,7 +100,7 @@ export default function AdminSettingsPage() {
               min="0"
               step="0.1"
               value={draft.taxRate}
-              onChange={(e) => set('taxRate', e.target.value, 'tax')}
+              onChange={(e) => set('taxRate', e.target.value)}
               className={inputClass}
             />
           </Field>
@@ -87,7 +109,6 @@ export default function AdminSettingsPage() {
             <button type="submit" className="bg-rust text-white text-sm font-medium px-5 py-2 rounded-md hover:bg-rust/90">
               Save
             </button>
-            {savedTax && <span className="text-xs text-sage font-medium">Saved.</span>}
           </div>
         </form>
 
@@ -103,7 +124,7 @@ export default function AdminSettingsPage() {
             <Field label="Restaurant Name">
               <input
                 value={draft.restaurantName}
-                onChange={(e) => set('restaurantName', e.target.value, 'receipt')}
+                onChange={(e) => set('restaurantName', e.target.value)}
                 className={`${inputClass} max-w-md`}
               />
             </Field>
@@ -112,14 +133,14 @@ export default function AdminSettingsPage() {
               <Field label="Address Line 1">
                 <input
                   value={draft.addressLine1}
-                  onChange={(e) => set('addressLine1', e.target.value, 'receipt')}
+                  onChange={(e) => set('addressLine1', e.target.value)}
                   className={inputClass}
                 />
               </Field>
               <Field label="Address Line 2">
                 <input
                   value={draft.addressLine2}
-                  onChange={(e) => set('addressLine2', e.target.value, 'receipt')}
+                  onChange={(e) => set('addressLine2', e.target.value)}
                   className={inputClass}
                 />
               </Field>
@@ -129,14 +150,14 @@ export default function AdminSettingsPage() {
               <Field label="Phone">
                 <input
                   value={draft.phone}
-                  onChange={(e) => set('phone', e.target.value, 'receipt')}
+                  onChange={(e) => set('phone', e.target.value)}
                   className={inputClass}
                 />
               </Field>
               <Field label="GSTIN">
                 <input
                   value={draft.gstin}
-                  onChange={(e) => set('gstin', e.target.value, 'receipt')}
+                  onChange={(e) => set('gstin', e.target.value)}
                   className={inputClass}
                 />
               </Field>
@@ -147,7 +168,6 @@ export default function AdminSettingsPage() {
             <button type="submit" className="bg-rust text-white text-sm font-medium px-5 py-2 rounded-md hover:bg-rust/90">
               Save
             </button>
-            {savedReceipt && <span className="text-xs text-sage font-medium">Saved.</span>}
           </div>
         </form>
       </div>
@@ -158,6 +178,7 @@ export default function AdminSettingsPage() {
           message="This updates the GST rate used on every KOT and bill total printed from now on."
           confirmLabel="Save Changes"
           danger={false}
+          confirming={savingTax}
           onCancel={() => setConfirmingTax(false)}
           onConfirm={confirmSaveTax}
         />
@@ -169,6 +190,7 @@ export default function AdminSettingsPage() {
           message="This updates the restaurant name, address, phone and GSTIN printed on every KOT and bill from now on."
           confirmLabel="Save Changes"
           danger={false}
+          confirming={savingReceipt}
           onCancel={() => setConfirmingReceipt(false)}
           onConfirm={confirmSaveReceipt}
         />

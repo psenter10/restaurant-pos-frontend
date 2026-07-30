@@ -26,7 +26,7 @@ export default {
         },
         sky: {
           DEFAULT: '#4A90C4',
-          light: '#DCEBF7',
+          light: '#FFF39C',
         },
         gold: {
           DEFAULT: '#D9B23C',

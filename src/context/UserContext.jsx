@@ -1,70 +1,51 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-
-const STORAGE_KEY = 'pos_users';
-
-// Seed data so the Admin panel isn't empty before real accounts are created.
-const SEED_USERS = [
-  { id: 1, username: 'counter1', password: 'pos123' },
-  { id: 2, username: 'counter2', password: 'pos123' },
-];
-
-function loadUsers() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch {
-    // ignore corrupt storage, fall back to seed data
-  }
-  return SEED_USERS;
-}
-
-// LoginPage renders before any provider (it's outside RequireAuth), so it
-// can't use useUsers() — it calls this directly against the same storage
-// key instead. Swap this out once the CI4 /auth/login endpoint is live.
-// Returns a reason (rather than a plain bool) so LoginPage can tell a typo
-// apart from a deactivated account instead of showing the same generic error
-// for both.
-export function validateCredentials(username, password) {
-  const users = loadUsers();
-  const match = users.find(
-    (u) => u.username.toLowerCase() === username.toLowerCase() && u.password === password
-  );
-  if (!match) return { ok: false, reason: 'invalid' };
-  if (match.active === false) return { ok: false, reason: 'inactive' };
-  return { ok: true, reason: null };
-}
+import {
+  getUsers,
+  createUser as apiCreateUser,
+  resetUserPassword as apiResetUserPassword,
+  deleteUser as apiDeleteUser,
+  toggleUserActive as apiToggleUserActive,
+} from '../services/api.js';
 
 const UserContext = createContext(null);
 
 export function UserProvider({ children }) {
-  const [users, setUsers] = useState(loadUsers);
+  const [users, setUsers] = useState([]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(users));
-  }, [users]);
+    refresh();
+  }, []);
 
-  function addUser(username, password) {
-    const trimmed = username.trim();
-    if (!trimmed || !password.trim()) return false;
-    if (users.some((u) => u.username.toLowerCase() === trimmed.toLowerCase())) return false;
-    setUsers((prev) => [...prev, { id: Date.now(), username: trimmed, password }]);
-    return true;
+  function refresh() {
+    return getUsers()
+      .then((res) => {
+        // Normalize the API's 0/1 active flag to a real boolean — see the
+        // same note in WaiterContext.jsx.
+        setUsers(res.data.map((u) => ({ ...u, active: u.active !== 0 })));
+      })
+      .catch(() => {
+        // Backend unreachable — leave the list empty rather than show stale data.
+      });
   }
 
-  function removeUser(id) {
-    setUsers((prev) => prev.filter((u) => u.id !== id));
+  async function addUser(username, password) {
+    await apiCreateUser({ username, password });
+    await refresh();
   }
 
-  function resetPassword(id, password) {
+  async function removeUser(id) {
+    await apiDeleteUser(id);
+    await refresh();
+  }
+
+  async function resetPassword(id, password) {
     if (!password.trim()) return;
-    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, password } : u)));
+    await apiResetUserPassword(id, password);
   }
 
-  function toggleUserActive(id) {
-    setUsers((prev) => prev.map((u) => (u.id === id ? { ...u, active: u.active === false } : u)));
+  async function toggleUserActive(id) {
+    await apiToggleUserActive(id);
+    await refresh();
   }
 
   return (

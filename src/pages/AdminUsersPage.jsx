@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { useUsers } from '../context/UserContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
 import ConfirmModal from '../components/ConfirmModal.jsx';
 import ToggleSwitch from '../components/ToggleSwitch.jsx';
+import SubmitButton from '../components/SubmitButton.jsx';
 import StatRow from '../components/StatRow.jsx';
 import IconTextButton from '../components/IconTextButton.jsx';
 import { IconPlus, IconTrash, IconEdit, IconSearch } from '../components/icons.jsx';
@@ -9,20 +12,26 @@ import { IconPlus, IconTrash, IconEdit, IconSearch } from '../components/icons.j
 function AddUserModal({ onClose, onSave }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [errors, setErrors] = useState({}); // { username, password }
+  const [submitting, setSubmitting] = useState(false);
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-    if (!username.trim() || !password.trim()) {
-      setError('Enter both a username and password.');
+    const next = {};
+    if (!username.trim()) next.username = 'Enter a username.';
+    if (!password.trim()) next.password = 'Enter a password.';
+    if (Object.keys(next).length > 0) {
+      setErrors(next);
       return;
     }
-    const created = onSave(username, password);
-    if (!created) {
-      setError('That username already exists.');
-      return;
+    setErrors({});
+    setSubmitting(true);
+    try {
+      await onSave(username, password);
+    } catch {
+      // parent already showed a toast with the reason; keep the modal open to retry
     }
-    onClose();
+    setSubmitting(false);
   }
 
   return (
@@ -44,29 +53,99 @@ function AddUserModal({ onClose, onSave }) {
             <input
               autoFocus
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                setErrors((prev) => ({ ...prev, username: undefined }));
+              }}
               placeholder="e.g. counter3"
-              className="w-full border border-line rounded-md px-3 py-2 text-sm outline-none"
+              className={`w-full border rounded-md px-3 py-2 text-sm outline-none ${errors.username ? 'border-rust' : 'border-line'}`}
             />
+            {errors.username && <p className="text-xs text-rust mt-1">{errors.username}</p>}
           </div>
           <div>
             <label className="block text-xs font-medium text-ink-soft mb-1.5">Password</label>
             <input
+              type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setErrors((prev) => ({ ...prev, password: undefined }));
+              }}
               placeholder="Password"
-              className="w-full border border-line rounded-md px-3 py-2 text-sm outline-none"
+              className={`w-full border rounded-md px-3 py-2 text-sm outline-none ${errors.password ? 'border-rust' : 'border-line'}`}
             />
+            {errors.password && <p className="text-xs text-rust mt-1">{errors.password}</p>}
           </div>
-          {error && <p className="text-xs text-rust">{error}</p>}
         </div>
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-line">
-          <button type="button" onClick={onClose} className="btn-secondary text-sm">
+          <button type="button" onClick={onClose} disabled={submitting} className="btn-secondary text-sm disabled:opacity-50">
             Cancel
           </button>
-          <button type="submit" className="bg-rust text-white text-sm font-medium px-4 py-2 rounded-md hover:bg-rust/90">
-            Add User
+          <SubmitButton submitting={submitting}>Add User</SubmitButton>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ResetPasswordModal({ user, onClose, onSave }) {
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!password.trim()) {
+      setError('Enter a new password.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onSave(password);
+    } catch {
+      // parent already showed a toast with the reason; keep the modal open to retry
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-ink/40 flex items-center justify-center z-50" onClick={onClose}>
+      <form
+        onSubmit={handleSubmit}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-lg shadow-md w-[420px] max-w-[92vw]"
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line">
+          <h3 className="font-display font-semibold text-lg">Reset Password</h3>
+          <button type="button" onClick={onClose} className="text-ink-soft hover:text-ink text-xl leading-none">
+            ×
           </button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <p className="text-xs text-ink-soft">
+            Set a new password for <span className="font-medium text-ink">"{user.username}"</span>.
+          </p>
+          <div>
+            <label className="block text-xs font-medium text-ink-soft mb-1.5">New Password</label>
+            <input
+              type="password"
+              autoFocus
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                setError('');
+              }}
+              placeholder="New password"
+              className={`w-full border rounded-md px-3 py-2 text-sm outline-none ${error ? 'border-rust' : 'border-line'}`}
+            />
+            {error && <p className="text-xs text-rust mt-1">{error}</p>}
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-line">
+          <button type="button" onClick={onClose} disabled={submitting} className="btn-secondary text-sm disabled:opacity-50">
+            Cancel
+          </button>
+          <SubmitButton submitting={submitting}>Reset Password</SubmitButton>
         </div>
       </form>
     </div>
@@ -75,37 +154,72 @@ function AddUserModal({ onClose, onSave }) {
 
 export default function AdminUsersPage() {
   const { users, addUser, removeUser, resetPassword, toggleUserActive } = useUsers();
+  const { showSuccess, showError } = useToast();
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
-  const [resetTarget, setResetTarget] = useState(null);
-  const [resetValue, setResetValue] = useState('');
+  const [resetPasswordTarget, setResetPasswordTarget] = useState(null); // user object
   const [confirmAction, setConfirmAction] = useState(null); // { type: 'delete' | 'deactivate', user }
+  const [confirming, setConfirming] = useState(false);
+  const [togglingId, setTogglingId] = useState(null);
 
   const activeCount = users.filter((u) => u.active !== false).length;
   const filtered = search.trim()
     ? users.filter((u) => u.username.toLowerCase().includes(search.trim().toLowerCase()))
     : users;
 
-  function commitReset() {
-    if (resetTarget && resetValue.trim()) {
-      resetPassword(resetTarget, resetValue.trim());
+  async function handleAddUser(username, password) {
+    try {
+      await addUser(username, password);
+      showSuccess('User added.');
+      setShowAddModal(false);
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not add the user. Please try again.'));
+      throw err;
     }
-    setResetTarget(null);
-    setResetValue('');
   }
 
-  function handleToggleActive(user) {
+  async function handleResetPassword(password) {
+    try {
+      await resetPassword(resetPasswordTarget.id, password);
+      showSuccess('Password reset.');
+      setResetPasswordTarget(null);
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not reset the password. Please try again.'));
+      throw err;
+    }
+  }
+
+  async function handleToggleActive(user) {
     if (user.active === false) {
-      toggleUserActive(user.id);
+      setTogglingId(user.id);
+      try {
+        await toggleUserActive(user.id);
+        showSuccess('User marked active.');
+      } catch (err) {
+        showError(apiErrorMessage(err, 'Could not update the user. Please try again.'));
+      } finally {
+        setTogglingId(null);
+      }
     } else {
       setConfirmAction({ type: 'deactivate', user });
     }
   }
 
-  function runConfirmedAction() {
+  async function runConfirmedAction() {
     if (!confirmAction) return;
-    if (confirmAction.type === 'delete') removeUser(confirmAction.user.id);
-    else toggleUserActive(confirmAction.user.id);
+    setConfirming(true);
+    try {
+      if (confirmAction.type === 'delete') {
+        await removeUser(confirmAction.user.id);
+        showSuccess('User deleted.');
+      } else {
+        await toggleUserActive(confirmAction.user.id);
+        showSuccess('User marked inactive.');
+      }
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not update the user. Please try again.'));
+    }
+    setConfirming(false);
     setConfirmAction(null);
   }
 
@@ -127,7 +241,7 @@ export default function AdminUsersPage() {
         ]}
       />
 
-      <div className="flex items-center gap-3 mb-4">
+      <div className="flex items-center justify-between gap-3 mb-4">
         <div className="flex items-center gap-2 border border-line rounded-md px-3 py-2 flex-1 max-w-sm bg-white">
           <IconSearch className="w-4 h-4 text-ink-soft" />
           <input
@@ -152,33 +266,18 @@ export default function AdminUsersPage() {
             <div key={user.id} className={`ticket-card p-3 ${active ? 'bg-white' : 'bg-line/20'}`}>
               <div className="flex items-center justify-between">
                 <span className={`text-sm font-medium ${active ? '' : 'text-ink-soft'}`}>{user.username}</span>
-                <ToggleSwitch checked={active} onChange={() => handleToggleActive(user)} />
+                <ToggleSwitch
+                  checked={active}
+                  onChange={() => handleToggleActive(user)}
+                  loading={togglingId === user.id}
+                />
               </div>
-
-              {resetTarget === user.id && (
-                <div className="flex items-center gap-1.5 mt-2.5">
-                  <input
-                    autoFocus
-                    value={resetValue}
-                    onChange={(e) => setResetValue(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && commitReset()}
-                    placeholder="New password"
-                    className="flex-1 border border-line rounded-md px-2 py-1 text-xs outline-none"
-                  />
-                  <button onClick={commitReset} className="text-xs font-medium text-navy hover:underline">
-                    Save
-                  </button>
-                </div>
-              )}
 
               <div className="flex items-center gap-2 mt-3 pt-2 border-t border-line/60">
                 <IconTextButton
                   icon={IconEdit}
                   tone="navy"
-                  onClick={() => {
-                    setResetTarget(user.id);
-                    setResetValue('');
-                  }}
+                  onClick={() => setResetPasswordTarget(user)}
                 >
                   Reset Password
                 </IconTextButton>
@@ -197,7 +296,15 @@ export default function AdminUsersPage() {
       </div>
 
       {showAddModal && (
-        <AddUserModal onClose={() => setShowAddModal(false)} onSave={(u, p) => addUser(u, p)} />
+        <AddUserModal onClose={() => setShowAddModal(false)} onSave={handleAddUser} />
+      )}
+
+      {resetPasswordTarget && (
+        <ResetPasswordModal
+          user={resetPasswordTarget}
+          onClose={() => setResetPasswordTarget(null)}
+          onSave={handleResetPassword}
+        />
       )}
 
       {confirmAction && (
@@ -209,6 +316,8 @@ export default function AdminUsersPage() {
               : `"${confirmAction.user.username}" will no longer be able to log in until reactivated.`
           }
           confirmLabel={confirmAction.type === 'delete' ? 'Delete' : 'Deactivate'}
+          danger={confirmAction.type === 'delete'}
+          confirming={confirming}
           onCancel={() => setConfirmAction(null)}
           onConfirm={runConfirmedAction}
         />

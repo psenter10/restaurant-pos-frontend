@@ -1,181 +1,165 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { getTables } from '../services/api.js';
-
-const STORAGE_KEY = 'pos_table_data';
-
-// Seed data so the app renders before the CI4 API + admin edits are in place.
-// Each occupied table override carries the running bill total and how long
-// ago it was seated, so TableCard can show a live amount + elapsed timer.
-function makeTables(prefix, start, end, overrides) {
-  const tables = [];
-  const now = Date.now();
-  for (let n = start; n <= end; n++) {
-    const override = overrides[n];
-    if (!override) {
-      tables.push({ id: `${prefix}-${n}`, name: `Table ${n}`, status: 'blank' });
-      continue;
-    }
-    const table = { id: `${prefix}-${n}`, name: `Table ${n}`, status: override.status };
-    if (override.amount != null) table.amount = override.amount;
-    if (override.minutesAgo != null) table.occupiedSince = now - override.minutesAgo * 60 * 1000;
-    tables.push(table);
-  }
-  return tables;
-}
-
-const SEED_SECTIONS = [
-  {
-    name: 'A/C',
-    orderType: 'Dine In',
-    tables: [
-      ...makeTables('ac', 1, 11, {
-        2: { status: 'running', amount: 860, minutesAgo: 22 },
-        5: { status: 'running', amount: 540, minutesAgo: 10 },
-        8: { status: 'running', amount: 1200, minutesAgo: 35 },
-        9: { status: 'printed', amount: 1420, minutesAgo: 50 },
-      }),
-      ...makeTables('ac', 12, 22, {
-        12: { status: 'running', amount: 320, minutesAgo: 6 },
-        14: { status: 'printed', amount: 980, minutesAgo: 40 },
-        19: { status: 'printed', amount: 1650, minutesAgo: 65 },
-      }),
-      ...makeTables('ac', 23, 28, {
-        26: { status: 'printed', amount: 750, minutesAgo: 28 },
-        27: { status: 'printed', amount: 890, minutesAgo: 44 },
-        28: { status: 'printed', amount: 315, minutesAgo: 15 },
-      }),
-    ],
-  },
-  {
-    name: 'Non A/C',
-    orderType: 'Dine In',
-    tables: makeTables('nac', 1, 9, {
-      2: { status: 'printed', amount: 640, minutesAgo: 20 },
-      5: { status: 'printed', amount: 410, minutesAgo: 12 },
-      8: { status: 'printed', amount: 980, minutesAgo: 33 },
-    }),
-  },
-  {
-    name: 'Bar',
-    orderType: 'Dine In',
-    tables: makeTables('bar', 1, 6, {
-      3: { status: 'reserved' },
-    }),
-  },
-];
-
-function loadInitial() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed.sections) return parsed.sections;
-    }
-  } catch {
-    // ignore corrupt storage, fall back to seed data
-  }
-  return SEED_SECTIONS;
-}
+import {
+  getTableSections,
+  createTableSection,
+  updateTableSection,
+  deleteTableSection,
+  toggleTableSectionAvailability,
+  getTables,
+  createTable as apiCreateTable,
+  updateTable as apiUpdateTable,
+  deleteTable as apiDeleteTable,
+  toggleTableAvailability as apiToggleTableAvailability,
+  updateTableStatus,
+  updateTableMerge,
+} from '../services/api.js';
 
 const TableContext = createContext(null);
 
+function toEpoch(value) {
+  if (value == null) return null;
+  return typeof value === 'number' ? value : new Date(value).getTime();
+}
+
+// API rows are snake_case with 0/1 flags; the app has always used camelCase
+// booleans for this shape (TablesPage, TableManagementPage, OrderPage), so
+// every consumer keeps working unchanged as long as this mapping stays in sync.
+function mapTable(row) {
+  const table = {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    available: row.available !== 0,
+  };
+  if (row.capacity != null) table.capacity = row.capacity;
+  const amount = Number(row.current_amount);
+  if (amount) table.amount = amount;
+  const occupiedSince = toEpoch(row.occupied_since);
+  if (occupiedSince != null) table.occupiedSince = occupiedSince;
+  if (row.merged_with?.length) table.mergedWith = row.merged_with;
+  return table;
+}
+
+function mapSection(row, tables) {
+  return {
+    id: row.id,
+    name: row.name,
+    orderType: row.order_type,
+    available: row.available !== 0,
+    tables,
+  };
+}
+
 export function TableProvider({ children }) {
-  const [sections, setSections] = useState(loadInitial);
+  const [sections, setSections] = useState([]);
+  // Only true until the very first load completes — the background poll and
+  // post-mutation refreshes shouldn't re-flash a full loading state.
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getTables()
-      .then((res) => setSections(res.data))
-      .catch(() => {
-        // API not reachable yet — keep localStorage/seed data
-      });
+    refresh().finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ sections }));
-  }, [sections]);
+  function refresh() {
+    return Promise.all([getTableSections(), getTables()])
+      .then(([sectionsRes, tablesRes]) => {
+        const tablesBySection = {};
+        tablesRes.data.forEach((row) => {
+          (tablesBySection[row.section_id] ??= []).push(mapTable(row));
+        });
+        setSections(sectionsRes.data.map((row) => mapSection(row, tablesBySection[row.id] || [])));
+      })
+      .catch(() => {
+        // Backend unreachable — leave the list empty rather than show stale data.
+      });
+  }
 
-  function addSection(name) {
+  async function addSection(name) {
     const trimmed = name.trim();
-    if (!trimmed || sections.some((s) => s.name === trimmed)) return;
-    setSections((prev) => [...prev, { name: trimmed, orderType: 'Dine In', tables: [] }]);
+    if (!trimmed) return;
+    await createTableSection({ name: trimmed });
+    await refresh();
   }
 
-  function renameSection(oldName, newName) {
+  async function renameSection(oldName, newName) {
     const trimmed = newName.trim();
-    if (!trimmed || trimmed === oldName || sections.some((s) => s.name === trimmed)) return;
-    setSections((prev) => prev.map((s) => (s.name === oldName ? { ...s, name: trimmed } : s)));
+    if (!trimmed) return;
+    const section = sections.find((s) => s.name === oldName);
+    if (!section) return;
+    await updateTableSection(section.id, { name: trimmed });
+    await refresh();
   }
 
-  function setSectionOrderType(sectionName, orderType) {
-    setSections((prev) => prev.map((s) => (s.name === sectionName ? { ...s, orderType } : s)));
+  async function setSectionOrderType(sectionName, orderType) {
+    const section = sections.find((s) => s.name === sectionName);
+    if (!section) return;
+    await updateTableSection(section.id, { order_type: orderType });
+    await refresh();
   }
 
-  function deleteSection(name) {
-    setSections((prev) => prev.filter((s) => s.name !== name));
+  async function deleteSection(name) {
+    const section = sections.find((s) => s.name === name);
+    if (!section) return;
+    await deleteTableSection(section.id);
+    await refresh();
   }
 
-  function toggleSectionAvailability(name) {
-    setSections((prev) =>
-      prev.map((s) => (s.name === name ? { ...s, available: s.available === false } : s))
-    );
+  async function toggleSectionAvailability(name) {
+    const section = sections.find((s) => s.name === name);
+    if (!section) return;
+    await toggleTableSectionAvailability(section.id);
+    await refresh();
   }
 
-  function addTable(sectionName, tableName, capacity) {
+  async function addTable(sectionName, tableName, capacity) {
     const trimmed = tableName.trim();
     if (!trimmed) return;
-    const id = `${sectionName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}`;
-    setSections((prev) =>
-      prev.map((s) =>
-        s.name === sectionName
-          ? {
-              ...s,
-              tables: [
-                ...s.tables,
-                { id, name: trimmed, status: 'blank', ...(capacity ? { capacity: Number(capacity) } : {}) },
-              ],
-            }
-          : s
-      )
-    );
+    const section = sections.find((s) => s.name === sectionName);
+    if (!section) return;
+    await apiCreateTable(section.id, { name: trimmed, ...(capacity ? { capacity: Number(capacity) } : {}) });
+    await refresh();
   }
 
-  function updateTable(sectionName, tableId, patch) {
-    setSections((prev) =>
-      prev.map((s) =>
-        s.name === sectionName
-          ? { ...s, tables: s.tables.map((t) => (t.id === tableId ? { ...t, ...patch } : t)) }
-          : s
-      )
-    );
+  async function updateTable(sectionName, tableId, patch) {
+    const { status, amount, occupiedSince, mergedWith, name, capacity } = patch;
+    const calls = [];
+
+    if (status !== undefined || amount !== undefined || occupiedSince !== undefined) {
+      const body = {};
+      if (status !== undefined) body.status = status;
+      if (amount !== undefined) body.current_amount = amount;
+      if (occupiedSince !== undefined) body.occupied_since = occupiedSince;
+      calls.push(updateTableStatus(tableId, body));
+    }
+    if (mergedWith !== undefined) {
+      calls.push(updateTableMerge(tableId, mergedWith));
+    }
+    if (name !== undefined || capacity !== undefined) {
+      const body = {};
+      if (name !== undefined) body.name = name;
+      if (capacity !== undefined) body.capacity = capacity;
+      calls.push(apiUpdateTable(tableId, body));
+    }
+
+    await Promise.all(calls);
+    await refresh();
   }
 
-  function removeTable(sectionName, tableId) {
-    setSections((prev) =>
-      prev.map((s) =>
-        s.name === sectionName ? { ...s, tables: s.tables.filter((t) => t.id !== tableId) } : s
-      )
-    );
+  async function removeTable(sectionName, tableId) {
+    await apiDeleteTable(tableId);
+    await refresh();
   }
 
-  function toggleTableAvailability(sectionName, tableId) {
-    setSections((prev) =>
-      prev.map((s) =>
-        s.name === sectionName
-          ? {
-              ...s,
-              tables: s.tables.map((t) =>
-                t.id === tableId ? { ...t, available: t.available === false } : t
-              ),
-            }
-          : s
-      )
-    );
+  async function toggleTableAvailability(sectionName, tableId) {
+    await apiToggleTableAvailability(tableId);
+    await refresh();
   }
 
   return (
     <TableContext.Provider
       value={{
         sections,
+        loading,
         addSection,
         renameSection,
         deleteSection,
@@ -185,6 +169,10 @@ export function TableProvider({ children }) {
         updateTable,
         removeTable,
         toggleTableAvailability,
+        // Exposed so pages that drive table status as a side effect of
+        // another API call (order/tables/status/kots) — not through
+        // updateTable — can pull the latest table state after that call.
+        refreshTables: refresh,
       }}
     >
       {children}

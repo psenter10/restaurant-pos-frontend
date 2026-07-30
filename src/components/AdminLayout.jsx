@@ -12,6 +12,7 @@ import {
   IconSettings,
   IconStorefront,
 } from './icons.jsx';
+import logo from '../assets/logo.png';
 import AdminDashboardPage from '../pages/AdminDashboardPage.jsx';
 import MenuPage from '../pages/MenuPage.jsx';
 import TableManagementPage from '../pages/TableManagementPage.jsx';
@@ -54,10 +55,10 @@ export default function AdminLayout() {
     <div className="min-h-screen flex bg-paper">
       <aside className="w-60 shrink-0 fixed inset-y-0 left-0 bg-navy text-white flex flex-col z-30">
         <div className="px-5 py-5 border-b border-white/10 shrink-0">
-          <span className="font-display font-bold text-lg tracking-tight">
-            Counter<span className="text-rust">POS</span>
-          </span>
-          <div className="text-[11px] text-white/50 mt-0.5 uppercase tracking-wide">Admin Panel</div>
+          <div className="bg-white rounded-md px-2.5 py-1.5 inline-block">
+            <img src={logo} alt="Lavanya Plaza" className="h-6 w-auto" />
+          </div>
+          <div className="text-[11px] text-white/50 mt-1.5 uppercase tracking-wide">Admin Panel</div>
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
@@ -90,7 +91,7 @@ export default function AdminLayout() {
       </aside>
 
       <div className="flex-1 flex flex-col min-w-0 ml-60">
-        <header className="flex items-center justify-between gap-4 px-6 py-3.5 border-b border-line bg-white">
+        <header className="sticky top-0 z-20 flex items-center justify-between gap-4 px-6 py-3.5 border-b border-line bg-white">
           <h1 className="font-display text-lg font-semibold text-ink">{pageTitle(location.pathname)}</h1>
           <div className="flex items-center gap-3">
             <button

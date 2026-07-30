@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ResponsiveContainer,
   AreaChart,
@@ -12,9 +12,8 @@ import {
   Cell,
 } from 'recharts';
 import { useTables } from '../context/TableContext.jsx';
-import { useMenu } from '../context/MenuContext.jsx';
 import { IconTrendUp, IconTrendDown, IconLayoutGrid, IconWallet, IconReceipt, IconChartBar } from '../components/icons.jsx';
-import { getMockSalesTrend, getMockDashboardSummary, getMockTopItems, getMockPaymentSplit } from '../services/dashboardMock.js';
+import { getDashboardSummary, getSalesTrend, getTopSellingItems, getPaymentSplit } from '../services/api.js';
 
 const BLUE = '#2a78d6';
 const AQUA = '#1baf7a';
@@ -106,11 +105,45 @@ function ChartTooltip({ active, payload, label, formatter }) {
   );
 }
 
+const DEFAULT_SUMMARY = { todaySales: 0, salesDeltaPct: 0, totalOrders: 0, ordersDeltaPct: 0, avgOrderValue: 0 };
+
 export default function AdminDashboardPage() {
   const { sections } = useTables();
-  const { items: menuItems } = useMenu();
 
-  const allTables = useMemo(() => sections.flatMap((s) => s.tables), [sections]);
+  const [salesTrend, setSalesTrend] = useState([]);
+  const [summary, setSummary] = useState(DEFAULT_SUMMARY);
+  const [topItems, setTopItems] = useState([]);
+  const [paymentSplit, setPaymentSplit] = useState([]);
+
+  useEffect(() => {
+    getSalesTrend(7)
+      .then((res) => setSalesTrend(res.data))
+      .catch(() => {
+        // Backend unreachable — chart just renders empty.
+      });
+    getDashboardSummary()
+      .then((res) => setSummary(res.data))
+      .catch(() => {
+        // Backend unreachable — tiles fall back to zeros.
+      });
+    getTopSellingItems(5)
+      .then((res) => setTopItems([...res.data].reverse()))
+      .catch(() => {
+        // Backend unreachable — chart just renders empty.
+      });
+    getPaymentSplit()
+      .then((res) => setPaymentSplit(res.data))
+      .catch(() => {
+        // Backend unreachable — chart just renders empty.
+      });
+  }, []);
+
+  // Defensive against malformed/stale data: drop any missing tables array or
+  // holes so a bad entry can't crash the dashboard.
+  const allTables = useMemo(
+    () => sections.flatMap((s) => (s.tables || []).filter(Boolean)),
+    [sections]
+  );
   const statusCounts = useMemo(() => {
     const counts = { Blank: 0, Running: 0, 'Bill Printed': 0, Reserved: 0 };
     allTables.forEach((t) => {
@@ -122,14 +155,6 @@ export default function AdminDashboardPage() {
     return counts;
   }, [allTables]);
   const occupiedTables = statusCounts.Running + statusCounts['Bill Printed'];
-
-  // Real-time table/menu data above; revenue figures below are placeholders
-  // until the CI4 reporting endpoints (services/api.js) are live — see
-  // services/dashboardMock.js.
-  const salesTrend = useMemo(() => getMockSalesTrend(7), []);
-  const summary = useMemo(() => getMockDashboardSummary(salesTrend), [salesTrend]);
-  const topItems = useMemo(() => getMockTopItems(menuItems, 5).reverse(), [menuItems]);
-  const paymentSplit = useMemo(() => getMockPaymentSplit(), []);
 
   const statusData = Object.entries(statusCounts).map(([label, count]) => ({ label, count }));
   const paymentColors = [BLUE, AQUA, YELLOW];

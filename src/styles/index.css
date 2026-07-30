@@ -52,6 +52,27 @@
   .app-shell {
     @apply min-h-screen flex flex-col;
   }
+
+  /* Thin, light scrollbar for panels with a lot of scrollable content
+     (e.g. the Order Cart item list) — Firefox via scrollbar-width/color,
+     Chrome/Edge/Safari via the ::-webkit-scrollbar-* pseudo-elements. */
+  .thin-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: #DEDAD1 transparent;
+  }
+  .thin-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+  .thin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .thin-scrollbar::-webkit-scrollbar-thumb {
+    background-color: #DEDAD1;
+    border-radius: 9999px;
+  }
+  .thin-scrollbar::-webkit-scrollbar-thumb:hover {
+    background-color: #c9c4b7;
+  }
 }
 
 @layer utilities {
@@ -97,7 +118,7 @@
     top: 0;
     left: 0;
     width: 80mm;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 11px;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 13.5px;
   }
 }

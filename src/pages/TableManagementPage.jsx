@@ -1,28 +1,97 @@
 import React, { useState } from 'react';
 import { useTables } from '../context/TableContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
 import { IconPlus, IconTrash } from '../components/icons.jsx';
 import ConfirmModal from '../components/ConfirmModal.jsx';
 import ToggleSwitch from '../components/ToggleSwitch.jsx';
+import SubmitButton from '../components/SubmitButton.jsx';
 import StatRow from '../components/StatRow.jsx';
 
 const SECTION_ORDER_TYPES = ['Dine In', 'Delivery'];
 
+function AddSectionModal({ onClose, onSave }) {
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError('Enter a section name.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onSave(name);
+    } catch {
+      // parent already showed a toast with the reason; keep the modal open to retry
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-ink/40 flex items-center justify-center z-50" onClick={onClose}>
+      <form
+        onSubmit={handleSubmit}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-lg shadow-md w-[380px] max-w-[92vw]"
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line">
+          <h3 className="font-display font-semibold text-lg">Add Section</h3>
+          <button type="button" onClick={onClose} className="text-ink-soft hover:text-ink text-xl leading-none">
+            ×
+          </button>
+        </div>
+        <div className="px-5 py-4">
+          <label className="block text-xs font-medium text-ink-soft mb-1.5">Section Name</label>
+          <input
+            autoFocus
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              setError('');
+            }}
+            placeholder="e.g. Rooftop"
+            className={`w-full border rounded-md px-3 py-2 text-sm outline-none ${error ? 'border-rust' : 'border-line'}`}
+          />
+          {error && <p className="text-xs text-rust mt-1">{error}</p>}
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-line">
+          <button type="button" onClick={onClose} disabled={submitting} className="btn-secondary text-sm disabled:opacity-50">
+            Cancel
+          </button>
+          <SubmitButton submitting={submitting}>Add Section</SubmitButton>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 export default function TableManagementPage() {
   const { sections, addSection, renameSection, deleteSection, toggleSectionAvailability, setSectionOrderType } =
     useTables();
-  const [newSection, setNewSection] = useState('');
+  const { showSuccess, showError } = useToast();
+  const [showAddModal, setShowAddModal] = useState(false);
   const [editingSection, setEditingSection] = useState(null);
   const [editValue, setEditValue] = useState('');
-  const [confirmAction, setConfirmAction] = useState(null); // { type: 'delete-section' | 'deactivate-section', name }
+  // { type: 'delete-section' | 'deactivate-section' | 'rename-section' | 'order-type', name, newName?, orderType? }
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [confirming, setConfirming] = useState(false);
+  const [togglingSection, setTogglingSection] = useState(null);
 
   const allTables = sections.flatMap((s) => s.tables);
   const availableTables = allTables.filter((t) => t.available !== false).length;
 
-  function handleAddSection(e) {
-    e.preventDefault();
-    if (!newSection.trim()) return;
-    addSection(newSection);
-    setNewSection('');
+  async function handleAddSection(name) {
+    try {
+      await addSection(name);
+      showSuccess('Section added.');
+      setShowAddModal(false);
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not add the section. Please try again.'));
+      throw err;
+    }
   }
 
   function startEdit(name) {
@@ -31,24 +100,61 @@ export default function TableManagementPage() {
   }
 
   function commitEdit() {
-    if (editingSection && editValue.trim() && editValue.trim() !== editingSection) {
-      renameSection(editingSection, editValue.trim());
+    if (!editingSection) return;
+    const trimmed = editValue.trim();
+    if (!trimmed) {
+      showError('Section name cannot be empty.');
+      return;
+    }
+    if (trimmed !== editingSection) {
+      setConfirmAction({ type: 'rename-section', name: editingSection, newName: trimmed });
     }
     setEditingSection(null);
   }
 
-  function handleToggleSection(section) {
+  async function handleToggleSection(section) {
     if (section.available === false) {
-      toggleSectionAvailability(section.name);
+      setTogglingSection(section.name);
+      try {
+        await toggleSectionAvailability(section.name);
+        showSuccess('Section marked available.');
+      } catch (err) {
+        showError(apiErrorMessage(err, 'Could not update the section. Please try again.'));
+      } finally {
+        setTogglingSection(null);
+      }
     } else {
       setConfirmAction({ type: 'deactivate-section', name: section.name });
     }
   }
 
-  function runConfirmedAction() {
+  function handleSetSectionOrderType(sectionName, orderType) {
+    const section = sections.find((s) => s.name === sectionName);
+    if (section && (section.orderType || 'Dine In') === orderType) return;
+    setConfirmAction({ type: 'order-type', name: sectionName, orderType });
+  }
+
+  async function runConfirmedAction() {
     if (!confirmAction) return;
-    if (confirmAction.type === 'delete-section') deleteSection(confirmAction.name);
-    else if (confirmAction.type === 'deactivate-section') toggleSectionAvailability(confirmAction.name);
+    setConfirming(true);
+    try {
+      if (confirmAction.type === 'delete-section') {
+        await deleteSection(confirmAction.name);
+        showSuccess('Section deleted.');
+      } else if (confirmAction.type === 'deactivate-section') {
+        await toggleSectionAvailability(confirmAction.name);
+        showSuccess('Section marked unavailable.');
+      } else if (confirmAction.type === 'rename-section') {
+        await renameSection(confirmAction.name, confirmAction.newName);
+        showSuccess('Section renamed.');
+      } else if (confirmAction.type === 'order-type') {
+        await setSectionOrderType(confirmAction.name, confirmAction.orderType);
+        showSuccess('Table type updated.');
+      }
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not update the section. Please try again.'));
+    }
+    setConfirming(false);
     setConfirmAction(null);
   }
 
@@ -67,22 +173,16 @@ export default function TableManagementPage() {
         ]}
       />
 
-      <form onSubmit={handleAddSection} className="flex items-center gap-2 mb-6 max-w-lg">
-        <input
-          value={newSection}
-          onChange={(e) => setNewSection(e.target.value)}
-          placeholder="New section name (e.g. Rooftop)"
-          className="flex-1 border border-line rounded-md px-3 py-2 text-sm outline-none"
-        />
+      <div className="flex items-center justify-end mb-4">
         <button
-          type="submit"
-          className="bg-rust text-white text-sm font-medium px-4 py-2 rounded-md hover:bg-rust/90"
+          onClick={() => setShowAddModal(true)}
+          className="flex items-center gap-1.5 bg-rust text-white text-sm font-medium px-4 py-2 rounded-md hover:bg-rust/90 whitespace-nowrap"
         >
-          Add Section
+          <IconPlus className="w-4 h-4" /> Add Section
         </button>
-      </form>
+      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4">
         {sections.map((section) => {
           const sectionAvailable = section.available !== false;
           const sectionAvailableTables = section.tables.filter((t) => t.available !== false).length;
@@ -111,6 +211,7 @@ export default function TableManagementPage() {
                     checked={sectionAvailable}
                     onChange={() => handleToggleSection(section)}
                     label={sectionAvailable ? 'Available' : 'Unavailable'}
+                    loading={togglingSection === section.name}
                   />
                   <button
                     onClick={() => setConfirmAction({ type: 'delete-section', name: section.name })}
@@ -134,7 +235,7 @@ export default function TableManagementPage() {
                   {SECTION_ORDER_TYPES.map((type) => (
                     <button
                       key={type}
-                      onClick={() => setSectionOrderType(section.name, type)}
+                      onClick={() => handleSetSectionOrderType(section.name, type)}
                       className={`px-2.5 py-1 transition-colors ${
                         (section.orderType || 'Dine In') === type
                           ? 'bg-navy text-white'
@@ -154,15 +255,39 @@ export default function TableManagementPage() {
         {sections.length === 0 && <p className="text-sm text-ink-soft">No sections yet.</p>}
       </div>
 
+      {showAddModal && (
+        <AddSectionModal onClose={() => setShowAddModal(false)} onSave={handleAddSection} />
+      )}
+
       {confirmAction && (
         <ConfirmModal
-          title={confirmAction.type === 'delete-section' ? 'Delete section?' : 'Mark section unavailable?'}
+          title={
+            {
+              'delete-section': 'Delete section?',
+              'deactivate-section': 'Mark section unavailable?',
+              'rename-section': 'Rename section?',
+              'order-type': 'Change table type?',
+            }[confirmAction.type]
+          }
           message={
             confirmAction.type === 'delete-section'
               ? `"${confirmAction.name}" and all its tables will be permanently removed.`
-              : `"${confirmAction.name}" and all its tables will be hidden from the Table View until you turn it back on.`
+              : confirmAction.type === 'deactivate-section'
+              ? `"${confirmAction.name}" and all its tables will be hidden from the Table View until you turn it back on.`
+              : confirmAction.type === 'rename-section'
+              ? `Rename "${confirmAction.name}" to "${confirmAction.newName}"?`
+              : `Change "${confirmAction.name}" to ${confirmAction.orderType}?`
           }
-          confirmLabel={confirmAction.type === 'delete-section' ? 'Delete' : 'Mark Unavailable'}
+          confirmLabel={
+            {
+              'delete-section': 'Delete',
+              'deactivate-section': 'Mark Unavailable',
+              'rename-section': 'Rename',
+              'order-type': 'Change',
+            }[confirmAction.type]
+          }
+          danger={confirmAction.type === 'delete-section'}
+          confirming={confirming}
           onCancel={() => setConfirmAction(null)}
           onConfirm={runConfirmedAction}
         />
@@ -171,21 +296,113 @@ export default function TableManagementPage() {
   );
 }
 
+function isValidCapacity(value) {
+  if (!value) return true; // capacity is optional
+  const num = Number(value);
+  return Number.isInteger(num) && num > 0;
+}
+
+function AddTableModal({ onClose, onSave }) {
+  const [name, setName] = useState('');
+  const [capacity, setCapacity] = useState('');
+  const [errors, setErrors] = useState({}); // { name, capacity }
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    const next = {};
+    if (!name.trim()) next.name = 'Enter a table name.';
+    if (!isValidCapacity(capacity)) next.capacity = 'Capacity must be a positive whole number.';
+    if (Object.keys(next).length > 0) {
+      setErrors(next);
+      return;
+    }
+    setErrors({});
+    setSubmitting(true);
+    try {
+      await onSave(name, capacity);
+    } catch {
+      // parent already showed a toast with the reason; keep the modal open to retry
+    }
+    setSubmitting(false);
+  }
+
+  return (
+    <div className="fixed inset-0 bg-ink/40 flex items-center justify-center z-50" onClick={onClose}>
+      <form
+        onSubmit={handleSubmit}
+        onClick={(e) => e.stopPropagation()}
+        className="bg-white rounded-lg shadow-md w-[380px] max-w-[92vw]"
+      >
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line">
+          <h3 className="font-display font-semibold text-lg">Add Table</h3>
+          <button type="button" onClick={onClose} className="text-ink-soft hover:text-ink text-xl leading-none">
+            ×
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-ink-soft mb-1.5">Table Name</label>
+            <input
+              autoFocus
+              value={name}
+              onChange={(e) => {
+                setName(e.target.value);
+                setErrors((prev) => ({ ...prev, name: undefined }));
+              }}
+              placeholder="e.g. Table 12"
+              className={`w-full border rounded-md px-3 py-2 text-sm outline-none ${errors.name ? 'border-rust' : 'border-line'}`}
+            />
+            {errors.name && <p className="text-xs text-rust mt-1">{errors.name}</p>}
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-ink-soft mb-1.5">Capacity (optional)</label>
+            <input
+              type="number"
+              min="1"
+              value={capacity}
+              onChange={(e) => {
+                setCapacity(e.target.value);
+                setErrors((prev) => ({ ...prev, capacity: undefined }));
+              }}
+              placeholder="Pax"
+              className={`w-full border rounded-md px-3 py-2 text-sm outline-none ${errors.capacity ? 'border-rust' : 'border-line'}`}
+            />
+            {errors.capacity && <p className="text-xs text-rust mt-1">{errors.capacity}</p>}
+          </div>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-line">
+          <button type="button" onClick={onClose} disabled={submitting} className="btn-secondary text-sm disabled:opacity-50">
+            Cancel
+          </button>
+          <SubmitButton submitting={submitting} tone="navy">Add Table</SubmitButton>
+        </div>
+      </form>
+    </div>
+  );
+}
+
 function SectionTables({ sectionName, tables }) {
   const { addTable, updateTable, removeTable, toggleTableAvailability } = useTables();
-  const [newTableName, setNewTableName] = useState('');
-  const [newTableCapacity, setNewTableCapacity] = useState('');
+  const { showSuccess, showError } = useToast();
+  const [showAddModal, setShowAddModal] = useState(false);
   const [editingTable, setEditingTable] = useState(null);
   const [editValue, setEditValue] = useState('');
   const [editCapacity, setEditCapacity] = useState('');
-  const [confirmAction, setConfirmAction] = useState(null); // { type: 'delete-table' | 'deactivate-table', table }
+  // { type: 'delete-table' | 'deactivate-table' | 'edit-table', table, patch? }
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [confirming, setConfirming] = useState(false);
+  const [togglingTableId, setTogglingTableId] = useState(null);
 
-  function handleAddTable(e) {
-    e.preventDefault();
-    if (!newTableName.trim()) return;
-    addTable(sectionName, newTableName, newTableCapacity);
-    setNewTableName('');
-    setNewTableCapacity('');
+  async function handleAddTable(name, capacity) {
+    try {
+      await addTable(sectionName, name, capacity);
+      showSuccess('Table added.');
+      setShowAddModal(false);
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not add the table. Please try again.'));
+      throw err;
+    }
   }
 
   function startEdit(table) {
@@ -195,27 +412,62 @@ function SectionTables({ sectionName, tables }) {
   }
 
   function commitEdit() {
-    if (editingTable) {
-      updateTable(sectionName, editingTable, {
-        name: editValue.trim() || undefined,
-        capacity: editCapacity ? Number(editCapacity) : undefined,
-      });
+    if (!editingTable) return;
+    const trimmedName = editValue.trim();
+    if (!trimmedName) {
+      showError('Table name cannot be empty.');
+      return;
+    }
+    if (!isValidCapacity(editCapacity)) {
+      showError('Capacity must be a positive whole number.');
+      return;
+    }
+    const table = tables.find((t) => t.id === editingTable);
+    const patch = {
+      name: trimmedName,
+      capacity: editCapacity ? Number(editCapacity) : undefined,
+    };
+    const changed = patch.name !== table?.name || patch.capacity !== table?.capacity;
+    if (changed) {
+      setConfirmAction({ type: 'edit-table', table, patch });
     }
     setEditingTable(null);
   }
 
-  function handleToggleTable(table) {
+  async function handleToggleTable(table) {
     if (table.available === false) {
-      toggleTableAvailability(sectionName, table.id);
+      setTogglingTableId(table.id);
+      try {
+        await toggleTableAvailability(sectionName, table.id);
+        showSuccess('Table marked available.');
+      } catch (err) {
+        showError(apiErrorMessage(err, 'Could not update the table. Please try again.'));
+      } finally {
+        setTogglingTableId(null);
+      }
     } else {
       setConfirmAction({ type: 'deactivate-table', table });
     }
   }
 
-  function runConfirmedAction() {
+  async function runConfirmedAction() {
     if (!confirmAction) return;
-    if (confirmAction.type === 'delete-table') removeTable(sectionName, confirmAction.table.id);
-    else toggleTableAvailability(sectionName, confirmAction.table.id);
+    setConfirming(true);
+    try {
+      if (confirmAction.type === 'delete-table') {
+        await removeTable(sectionName, confirmAction.table.id);
+        showSuccess('Table deleted.');
+      } else if (confirmAction.type === 'edit-table') {
+        await updateTable(sectionName, confirmAction.table.id, confirmAction.patch);
+        showSuccess('Table updated.');
+      } else {
+        await toggleTableAvailability(sectionName, confirmAction.table.id);
+        showSuccess('Table marked unavailable.');
+      }
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not update the table. Please try again.'));
+    }
+    setConfirming(false);
     setConfirmAction(null);
   }
 
@@ -262,7 +514,11 @@ function SectionTables({ sectionName, tables }) {
                 </button>
               )}
               <div className="flex items-center gap-2 shrink-0">
-                <ToggleSwitch checked={available} onChange={() => handleToggleTable(table)} />
+                <ToggleSwitch
+                  checked={available}
+                  onChange={() => handleToggleTable(table)}
+                  loading={togglingTableId === table.id}
+                />
                 <button
                   onClick={() => setConfirmAction({ type: 'delete-table', table })}
                   className="text-rust hover:text-rust/80"
@@ -277,38 +533,36 @@ function SectionTables({ sectionName, tables }) {
         {tables.length === 0 && <p className="text-xs text-ink-soft col-span-full">No tables in this section.</p>}
       </div>
 
-      <form onSubmit={handleAddTable} className="flex items-center gap-2">
-        <input
-          value={newTableName}
-          onChange={(e) => setNewTableName(e.target.value)}
-          placeholder="Table name"
-          className="flex-1 border border-line rounded-md px-2.5 py-1.5 text-xs outline-none"
-        />
-        <input
-          type="number"
-          min="1"
-          value={newTableCapacity}
-          onChange={(e) => setNewTableCapacity(e.target.value)}
-          placeholder="Pax"
-          className="w-16 border border-line rounded-md px-2.5 py-1.5 text-xs outline-none"
-        />
-        <button
-          type="submit"
-          className="flex items-center gap-1 text-xs text-navy font-medium hover:underline whitespace-nowrap"
-        >
-          <IconPlus className="w-3.5 h-3.5" /> Add Table
-        </button>
-      </form>
+      <button
+        onClick={() => setShowAddModal(true)}
+        className="flex items-center gap-1.5 bg-navy text-white text-xs font-medium px-3 py-1.5 rounded-md hover:bg-navy-light whitespace-nowrap"
+      >
+        <IconPlus className="w-3.5 h-3.5" /> Add New Table
+      </button>
+
+      {showAddModal && (
+        <AddTableModal onClose={() => setShowAddModal(false)} onSave={handleAddTable} />
+      )}
 
       {confirmAction && (
         <ConfirmModal
-          title={confirmAction.type === 'delete-table' ? 'Delete table?' : 'Mark table unavailable?'}
+          title={
+            confirmAction.type === 'delete-table'
+              ? 'Delete table?'
+              : confirmAction.type === 'edit-table'
+              ? 'Save changes?'
+              : 'Mark table unavailable?'
+          }
           message={
             confirmAction.type === 'delete-table'
               ? `"${confirmAction.table.name}" will be permanently removed.`
+              : confirmAction.type === 'edit-table'
+              ? `Save changes to "${confirmAction.table.name}"?`
               : `"${confirmAction.table.name}" will be hidden from the Table View until you turn it back on.`
           }
-          confirmLabel={confirmAction.type === 'delete-table' ? 'Delete' : 'Mark Unavailable'}
+          confirmLabel={confirmAction.type === 'delete-table' ? 'Delete' : confirmAction.type === 'edit-table' ? 'Save Changes' : 'Mark Unavailable'}
+          danger={confirmAction.type === 'delete-table'}
+          confirming={confirming}
           onCancel={() => setConfirmAction(null)}
           onConfirm={runConfirmedAction}
         />

@@ -1,69 +1,71 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-
-const STORAGE_KEY = 'pos_kots';
-
-function loadInitial() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch {
-    // ignore corrupt storage, fall back to an empty board
-  }
-  return [];
-}
+import { getKots, updateKotStatus as apiUpdateKotStatus, cancelKot as apiCancelKot } from '../services/api.js';
 
 const KotContext = createContext(null);
 
+function toEpoch(value) {
+  if (value == null) return null;
+  return typeof value === 'number' ? value : new Date(value).getTime();
+}
+
+// GET /kots returns the raw row plus joined table_name/waiter_name/etc; the
+// Kitchen Display (KotPage/KotCard) has always used this camelCase shape
+// with epoch-ms timestamps for its live stopwatch, so that mapping happens here.
+function mapKot(row) {
+  return {
+    id: row.id,
+    kotNo: row.kot_no,
+    tableId: row.table_id,
+    tableName: row.table_name,
+    waiter: row.waiter_name,
+    orderType: row.order_type,
+    note: row.note,
+    status: row.status,
+    items: (row.items || []).map((item) => ({ name: item.name, qty: item.qty, notes: item.notes })),
+    createdAt: toEpoch(row.created_at),
+    preparingAt: toEpoch(row.preparing_at),
+    completedAt: toEpoch(row.completed_at),
+  };
+}
+
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 // Backs the Kitchen Display's 3-column board (New/Preparing/Completed).
-// OrderPage.handleSaveKot() calls addKot() right after printing a KOT so it
-// shows up on the board immediately; KotPage drives the status transitions.
+// KOT rows are created server-side by saveKot() in api.js (called from
+// OrderPage.handleSaveKot) — this context only reads/transitions them.
+// Scoped to one calendar day at a time (see `date`/`setDate`), defaulting to
+// today so the board doesn't keep growing with every KOT ever fired.
 export function KotProvider({ children }) {
-  const [kots, setKots] = useState(loadInitial);
+  const [kots, setKots] = useState([]);
+  const [date, setDate] = useState(todayStr());
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(kots));
-  }, [kots]);
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date]);
 
-  function addKot({ kotNo, tableId, tableName, waiter, orderType, note, items }) {
-    const kot = {
-      id: `${tableId}-${kotNo}-${Date.now()}`,
-      kotNo,
-      tableId,
-      tableName,
-      waiter,
-      orderType,
-      note,
-      items,
-      status: 'new',
-      createdAt: Date.now(),
-      preparingAt: null,
-      completedAt: null,
-    };
-    setKots((prev) => [...prev, kot]);
-    return kot;
+  function refresh() {
+    return getKots(date)
+      .then((res) => setKots(res.data.map(mapKot)))
+      .catch(() => {
+        // Backend unreachable — leave the board empty rather than show stale data.
+      });
   }
 
-  function markPreparing(id) {
-    setKots((prev) =>
-      prev.map((k) => (k.id === id ? { ...k, status: 'preparing', preparingAt: Date.now() } : k))
-    );
+  async function updateKotStatus(id, status) {
+    await apiUpdateKotStatus(id, status);
+    await refresh();
   }
 
-  function markCompleted(id) {
-    setKots((prev) =>
-      prev.map((k) => (k.id === id ? { ...k, status: 'completed', completedAt: Date.now() } : k))
-    );
-  }
-
-  function cancelKot(id) {
-    setKots((prev) => prev.filter((k) => k.id !== id));
+  async function cancelKot(id) {
+    await apiCancelKot(id);
+    await refresh();
   }
 
   return (
-    <KotContext.Provider value={{ kots, addKot, markPreparing, markCompleted, cancelKot }}>
+    <KotContext.Provider value={{ kots, date, setDate, refreshKots: refresh, updateKotStatus, cancelKot }}>
       {children}
     </KotContext.Provider>
   );

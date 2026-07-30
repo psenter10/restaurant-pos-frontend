@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { IconPlus, IconTrash } from './icons.jsx';
+import SubmitButton from './SubmitButton.jsx';
 
 const emptyRow = () => ({ name: '', price: '' });
 
@@ -14,34 +15,71 @@ export default function ItemFormModal({ item, categories, onCancel, onSave }) {
     item?.variants?.map((v) => ({ name: v.name, price: v.price })) || []
   );
   const [addons, setAddons] = useState(item?.addons?.map((a) => ({ name: a.name, price: a.price })) || []);
+  const [errors, setErrors] = useState({}); // { name, price, category, general }
+  const [submitting, setSubmitting] = useState(false);
 
   function updateVariant(idx, patch) {
     setVariants((prev) => prev.map((v, i) => (i === idx ? { ...v, ...patch } : v)));
+    setErrors((prev) => ({ ...prev, general: undefined }));
   }
   function updateAddon(idx, patch) {
     setAddons((prev) => prev.map((a, i) => (i === idx ? { ...a, ...patch } : a)));
+    setErrors((prev) => ({ ...prev, general: undefined }));
   }
 
-  function handleSubmit(e) {
+  function isValidPrice(value) {
+    const num = Number(value);
+    return value !== '' && !Number.isNaN(num) && num >= 0;
+  }
+
+  function validate() {
+    const next = {};
+    if (!name.trim()) next.name = 'Enter an item name.';
+    if (!category) next.category = 'Select a category.';
+    if (!isValidPrice(price)) next.price = 'Enter a valid price (0 or more).';
+
+    for (const v of variants) {
+      if (!v.name.trim() || isValidPrice(v.price)) continue;
+      next.general = `Enter a valid price for the variation "${v.name.trim()}".`;
+      break;
+    }
+    if (!next.general) {
+      for (const a of addons) {
+        if (!a.name.trim() || isValidPrice(a.price)) continue;
+        next.general = `Enter a valid price for the addon "${a.name.trim()}".`;
+        break;
+      }
+    }
+    return next;
+  }
+
+  async function handleSubmit(e) {
     e.preventDefault();
-    if (!name.trim() || !category) return;
+    const fieldErrors = validate();
+    if (Object.keys(fieldErrors).length > 0) {
+      setErrors(fieldErrors);
+      return;
+    }
+    setErrors({});
 
     const cleanVariants = variants
       .filter((v) => v.name.trim())
-      .map((v) => ({ name: v.name.trim(), price: Number(v.price) || 0 }));
+      .map((v) => ({ name: v.name.trim(), price: Number(v.price) }));
     const cleanAddons = addons
       .filter((a) => a.name.trim())
-      .map((a) => ({ name: a.name.trim(), price: Number(a.price) || 0 }));
+      .map((a) => ({ name: a.name.trim(), price: Number(a.price) }));
 
-    onSave({
+    setSubmitting(true);
+    await onSave({
       name: name.trim(),
-      price: Number(price) || 0,
+      price: Number(price),
       category,
       veg,
       available,
       ...(cleanVariants.length ? { variants: cleanVariants } : {}),
       ...(cleanAddons.length ? { addons: cleanAddons } : {}),
     });
+    setSubmitting(false);
   }
 
   return (
@@ -63,10 +101,14 @@ export default function ItemFormModal({ item, categories, onCancel, onSave }) {
             <label className="block text-xs font-medium text-ink-soft mb-1.5">Item name</label>
             <input
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setErrors((prev) => ({ ...prev, name: undefined }));
+              }}
               placeholder="e.g. Paneer Tikka"
-              className="w-full border border-line rounded-md px-3 py-2 text-sm outline-none"
+              className={`w-full border rounded-md px-3 py-2 text-sm outline-none ${errors.name ? 'border-rust' : 'border-line'}`}
             />
+            {errors.name && <p className="text-xs text-rust mt-1">{errors.name}</p>}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -77,17 +119,24 @@ export default function ItemFormModal({ item, categories, onCancel, onSave }) {
                 min="0"
                 step="0.01"
                 value={price}
-                onChange={(e) => setPrice(e.target.value)}
+                onChange={(e) => {
+                  setPrice(e.target.value);
+                  setErrors((prev) => ({ ...prev, price: undefined }));
+                }}
                 placeholder="220"
-                className="w-full border border-line rounded-md px-3 py-2 text-sm outline-none"
+                className={`w-full border rounded-md px-3 py-2 text-sm outline-none ${errors.price ? 'border-rust' : 'border-line'}`}
               />
+              {errors.price && <p className="text-xs text-rust mt-1">{errors.price}</p>}
             </div>
             <div>
               <label className="block text-xs font-medium text-ink-soft mb-1.5">Category</label>
               <select
                 value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                className="w-full border border-line rounded-md px-3 py-2 text-sm outline-none bg-white"
+                onChange={(e) => {
+                  setCategory(e.target.value);
+                  setErrors((prev) => ({ ...prev, category: undefined }));
+                }}
+                className={`w-full border rounded-md px-3 py-2 text-sm outline-none bg-white ${errors.category ? 'border-rust' : 'border-line'}`}
               >
                 {categories.map((cat) => (
                   <option key={cat} value={cat}>
@@ -95,6 +144,7 @@ export default function ItemFormModal({ item, categories, onCancel, onSave }) {
                   </option>
                 ))}
               </select>
+              {errors.category && <p className="text-xs text-rust mt-1">{errors.category}</p>}
             </div>
           </div>
 
@@ -194,15 +244,15 @@ export default function ItemFormModal({ item, categories, onCancel, onSave }) {
               ))}
             </div>
           </div>
+
+          {errors.general && <p className="text-xs text-rust">{errors.general}</p>}
         </div>
 
         <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-line">
-          <button type="button" onClick={onCancel} className="btn-secondary text-sm">
+          <button type="button" onClick={onCancel} disabled={submitting} className="btn-secondary text-sm disabled:opacity-50">
             Cancel
           </button>
-          <button type="submit" className="bg-rust text-white text-sm font-medium px-4 py-2 rounded-md hover:bg-rust/90">
-            {isEdit ? 'Save Changes' : 'Add Item'}
-          </button>
+          <SubmitButton submitting={submitting}>{isEdit ? 'Save Changes' : 'Add Item'}</SubmitButton>
         </div>
       </form>
     </div>

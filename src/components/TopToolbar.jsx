@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { IconMenu, IconChevronDown, IconHeadset, IconLogout, IconDashboard } from './icons.jsx';
 import { getRole, hasPosAccess, revokePosAccess, logout } from '../services/auth.js';
+import logo from '../assets/logo.png';
 
 const NAV_LINKS = [
   ['/', 'Tables'],
@@ -25,11 +26,9 @@ export default function TopToolbar({ printerConnected, printerChecked }) {
   }
 
   return (
-    <header className="border-b border-line bg-white">
+    <header className="sticky top-0 z-30 border-b border-line bg-white">
       <div className="max-w-[1600px] w-full mx-auto flex items-center gap-4 px-4 py-2">
-        <span className="font-display font-bold text-lg tracking-tight whitespace-nowrap">
-          Counter<span className="text-rust">POS</span>
-        </span>
+        <img src={logo} alt="Lavanya Plaza" className="h-7 w-auto shrink-0" />
 
         <div className="relative">
           <button

@@ -279,6 +279,14 @@ export function IconBowl({ className }) {
   );
 }
 
+export function IconStar({ className }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} {...base}>
+      <path d="M12 3.5l2.6 5.6 6.1.6-4.6 4.1 1.3 6-5.4-3.2-5.4 3.2 1.3-6-4.6-4.1 6.1-.6Z" />
+    </svg>
+  );
+}
+
 export function IconTrash({ className }) {
   return (
     <svg viewBox="0 0 24 24" className={className} {...base}>

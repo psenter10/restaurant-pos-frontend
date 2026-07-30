@@ -1,11 +1,11 @@
 import React from 'react';
 import { formatDate, formatTime, splitItemName, RESTAURANT_INFO } from '../services/print.js';
 
-// Full-width dashed rule — a literal string of dashes only spans however wide
+// Full-width solid rule — a literal string of dashes only spans however wide
 // those characters render at, not the container, so it falls short of the
 // actual receipt width. A border always spans 100%.
 function Divider() {
-  return <div style={{ borderTop: '1px dashed #000', margin: '6px 0' }} />;
+  return <div style={{ borderTop: '1px solid #000', margin: '6px 0' }} />;
 }
 
 // Rendered off-screen; only visible via @media print rules (see styles/index.css).
@@ -17,7 +17,7 @@ export default function Receipt({ type, order, restaurant = RESTAURANT_INFO }) {
     const now = new Date();
     return (
       <div id="print-area" className="hidden">
-        <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 16 }}>KOT #{order.kotNo}</div>
+        <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 21 }}>KOT #{order.kotNo}</div>
         <Divider />
         <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
           <span>Order #{order.orderNo}</span>
@@ -48,7 +48,7 @@ export default function Receipt({ type, order, restaurant = RESTAURANT_INFO }) {
         {order.items.map((item, idx) => {
           const { main, note } = splitItemName(item.name);
           return (
-            <div key={idx}>
+            <div key={idx} style={{ padding: '7px 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                 <span>{main}</span>
                 <span>{item.qty}</span>
@@ -62,72 +62,76 @@ export default function Receipt({ type, order, restaurant = RESTAURANT_INFO }) {
   }
 
   const now = new Date();
+  const totalQty = order.items.reduce((sum, item) => sum + item.qty, 0);
+  const halfTaxRate = ((order.taxRate ?? 5) / 2).toFixed(2);
+  const halfTax = (order.tax / 2).toFixed(2);
 
   return (
     <div id="print-area" className="hidden">
-      <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 18 }}>{restaurant.name}</div>
+      <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 21 }}>{restaurant.name}</div>
       {restaurant.addressLines.map((line, idx) => (
         <div key={idx} style={{ textAlign: 'center' }}>
           {line}
         </div>
       ))}
-      <div style={{ textAlign: 'center' }}>Phone: {restaurant.phone}</div>
+      <div style={{ textAlign: 'center' }}>Ph: {restaurant.phone}</div>
       <div style={{ textAlign: 'center' }}>GSTIN: {restaurant.gstin}</div>
       <Divider />
+      <div>Name: {order.customerName || ''}</div>
+      <Divider />
       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-        <span>Order #{order.orderNo}</span>
-        <span style={{ fontWeight: 400 }}>Table: {order.tableName}</span>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
         <span>Date: {formatDate(now)}</span>
-        <span>Time: {formatTime(now)}</span>
+        <span>{order.orderType || 'Dine In'}: {order.tableName}</span>
       </div>
-      {order.waiter && <div>Waiter: {order.waiter}</div>}
-      <div>{order.orderType || '-'}</div>
-      {order.customerName && <div>Customer: {order.customerName}</div>}
+      <div>{formatTime(now)}</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+        <span>Cashier: {order.waiter || '-'}</span>
+        <span>Bill No.: {order.orderNo}</span>
+      </div>
       <Divider />
       <div style={{ display: 'flex', fontWeight: 700 }}>
-        <span style={{ width: '12%' }}>Qty</span>
-        <span style={{ width: '44%' }}>Item Name</span>
-        <span style={{ width: '22%', textAlign: 'right' }}>Price</span>
-        <span style={{ width: '22%', textAlign: 'right' }}>Amount</span>
-      </div>
-      {order.items.map((item, idx) => {
-        const { main, note } = splitItemName(item.name);
-        return (
-          <div key={idx}>
-            <div style={{ display: 'flex' }}>
-              <span style={{ width: '12%' }}>{item.qty}</span>
-              <span style={{ width: '44%' }}>{main}</span>
-              <span style={{ width: '22%', textAlign: 'right' }}>₹{item.price.toFixed(2)}</span>
-              <span style={{ width: '22%', textAlign: 'right' }}>₹{item.amount.toFixed(2)}</span>
-            </div>
-            {note && (
-              <div style={{ fontSize: 11, color: '#555', paddingLeft: '12%' }}>({note})</div>
-            )}
-          </div>
-        );
-      })}
-      <Divider />
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <span>Sub Total:</span>
-        <span>₹{order.subtotal.toFixed(2)}</span>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <span>Discount</span>
-        <span>-₹{(order.discount || 0).toFixed(2)}</span>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-        <span>GST ({order.taxRate ?? 5}%):</span>
-        <span>₹{order.tax.toFixed(2)}</span>
+        <span style={{ width: '8%' }}>No.</span>
+        <span style={{ width: '42%' }}>Item</span>
+        <span style={{ width: '16%', textAlign: 'right' }}>Qty.</span>
+        <span style={{ width: '16%', textAlign: 'right' }}>Price</span>
+        <span style={{ width: '18%', textAlign: 'right', paddingLeft: 10 }}>Amount</span>
       </div>
       <Divider />
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 15 }}>
-        <span>Total:</span>
-        <span>₹{order.total.toFixed(2)}</span>
+      {order.items.map((item, idx) => (
+        <div key={idx} style={{ display: 'flex', padding: '7px 0' }}>
+          <span style={{ width: '8%' }}>{idx + 1}</span>
+          <span style={{ width: '42%' }}>{item.name}</span>
+          <span style={{ width: '16%', textAlign: 'right' }}>{item.qty}</span>
+          <span style={{ width: '16%', textAlign: 'right' }}>{item.price.toFixed(2)}</span>
+          <span style={{ width: '18%', textAlign: 'right', paddingLeft: 10 }}>{item.amount.toFixed(2)}</span>
+        </div>
+      ))}
+      <Divider />
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <span>Total Qty: <b>{totalQty}</b></span>
+        <span>Sub Total <b>{order.subtotal.toFixed(2)}</b></span>
+      </div>
+      {order.discount > 0 && (
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+          <span>Discount</span>
+          <span>-{order.discount.toFixed(2)}</span>
+        </div>
+      )}
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <span>CGST {halfTaxRate}%</span>
+        <span>{halfTax}</span>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+        <span>SGST {halfTaxRate}%</span>
+        <span>{halfTax}</span>
       </div>
       <Divider />
-      <div style={{ textAlign: 'center', marginTop: 8 }}>Thank you for your visit!</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, fontSize: 18 }}>
+        <span>Grand Total</span>
+        <span>₹{Math.round(order.total).toFixed(2)}</span>
+      </div>
+      <Divider />
+      <div style={{ textAlign: 'center', marginTop: 8 }}>!!! Thank You, Visit Again !!!</div>
     </div>
   );
 }

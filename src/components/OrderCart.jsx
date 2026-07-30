@@ -10,9 +10,13 @@ import {
   IconCutlery,
   IconBowl,
   IconCheck,
+  IconPrinter,
 } from './icons.jsx';
+import ConfirmModal from './ConfirmModal.jsx';
+import Spinner from './Spinner.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
 import { useWaiters } from '../context/WaiterContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
 
 const ORDER_TYPES = ['Dine In', 'Delivery'];
 const MODE_BADGES = {
@@ -37,33 +41,39 @@ function groupItemsByKot(items) {
   return groups;
 }
 
-function ItemRow({ item, onQtyChange, onRemove }) {
+function ItemRow({ item, onQtyChange, onRemove, readOnly }) {
   const lineId = item.lineId ?? item.id;
   return (
     <div className="grid grid-cols-[1fr_88px_76px] gap-2 items-center text-sm">
       <span className="truncate">{item.name}</span>
-      <div className="flex items-center justify-center border border-line rounded-md overflow-hidden">
-        <button
-          onClick={() => onQtyChange(lineId, -1)}
-          className="w-6 h-6 flex items-center justify-center text-ink-soft hover:bg-line/60"
-          aria-label={`Decrease ${item.name} quantity`}
-        >
-          −
-        </button>
-        <span className="w-6 text-center font-mono text-xs border-x border-line">{item.qty}</span>
-        <button
-          onClick={() => onQtyChange(lineId, 1)}
-          className="w-6 h-6 flex items-center justify-center text-ink-soft hover:bg-line/60"
-          aria-label={`Increase ${item.name} quantity`}
-        >
-          +
-        </button>
-      </div>
+      {readOnly ? (
+        <span className="text-center font-mono text-xs">{item.qty}</span>
+      ) : (
+        <div className="flex items-center justify-center border border-line rounded-md overflow-hidden">
+          <button
+            onClick={() => onQtyChange(lineId, -1)}
+            className="w-6 h-6 flex items-center justify-center text-ink-soft hover:bg-line/60"
+            aria-label={`Decrease ${item.name} quantity`}
+          >
+            −
+          </button>
+          <span className="w-6 text-center font-mono text-xs border-x border-line">{item.qty}</span>
+          <button
+            onClick={() => onQtyChange(lineId, 1)}
+            className="w-6 h-6 flex items-center justify-center text-ink-soft hover:bg-line/60"
+            aria-label={`Increase ${item.name} quantity`}
+          >
+            +
+          </button>
+        </div>
+      )}
       <div className="flex items-center justify-end gap-2">
         <span className="font-mono">₹{(item.qty * item.price).toFixed(2)}</span>
-        <button onClick={() => onRemove(lineId)} className="text-rust text-xs hover:underline">
-          ✕
-        </button>
+        {!readOnly && (
+          <button onClick={() => onRemove(lineId)} className="text-rust text-xs hover:underline">
+            ✕
+          </button>
+        )}
       </div>
     </div>
   );
@@ -73,39 +83,59 @@ export default function OrderCart({
   tableId,
   tableName,
   sectionName,
+  orderId,
   items,
+  loading = false,
   onRemove,
   onQtyChange,
   mode,
   onSaveKot,
   onGenerateBill,
   onReprintBill,
+  onReprintKot,
   onOpenSettle,
   allTables = [],
   initialMergedWith = [],
   onMergeChange,
   initialOrderType = 'Dine In',
+  initialWaiter = '',
+  initialPax = '',
 }) {
   const { settings } = useSettings();
   const { waiters } = useWaiters();
+  const { showError } = useToast();
   const [orderType, setOrderType] = useState(initialOrderType);
 
-  const [orderNo] = useState(() => Math.floor(Math.random() * 90) + 10);
   const [activePanel, setActivePanel] = useState(null); // 'table' | 'customer' | 'pax' | 'note' | 'waiter'
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mergedTables, setMergedTables] = useState(initialMergedWith);
-  const [pax, setPax] = useState('');
+  const [pax, setPax] = useState(initialPax === '' || initialPax == null ? '' : String(initialPax));
   const [note, setNote] = useState('');
-  const [waiter, setWaiter] = useState('');
+  const [waiter, setWaiter] = useState(initialWaiter);
   const [discountType, setDiscountType] = useState('flat');
   const [discountValue, setDiscountValue] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerCity, setCustomerCity] = useState('');
   const [summaryOpen, setSummaryOpen] = useState(false);
+  // 'kot' | 'bill' | null — which action is pending confirmation.
+  const [confirmAction, setConfirmAction] = useState(null);
+  const [saving, setSaving] = useState(false);
   const mergeRef = useRef(null);
   const panelRef = useRef(null);
+
+  // initialWaiter/initialPax can arrive after this component's first render
+  // (the parent resolves them from the order's own API fetch) — fill them in
+  // once they show up, but only if the user hasn't already picked something.
+  useEffect(() => {
+    if (initialWaiter && !waiter) setWaiter(initialWaiter);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialWaiter]);
+  useEffect(() => {
+    if (initialPax !== '' && initialPax != null && pax === '') setPax(String(initialPax));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPax]);
 
   function toggleMergedTable(id) {
     setMergedTables((prev) => {
@@ -172,8 +202,52 @@ export default function OrderCart({
   const discountAmount = Math.min(subtotal, Math.max(0, rawDiscount));
   const discountedSubtotal = subtotal - discountAmount;
   const tax = discountedSubtotal * (settings.taxRate / 100);
-  const total = discountedSubtotal + tax;
+  // Rounded to the nearest rupee — this is the figure billed, printed, and
+  // settled against; subtotal/discount/tax keep their paise for the breakdown.
+  const total = Math.round(discountedSubtotal + tax);
   const hasItems = items.length > 0;
+
+  // Waiter + Pax are optional — whatever's set (see initialWaiter/initialPax)
+  // just carries forward to later KOT rounds, Bill, and Settle for this table.
+  function handleRequestSaveKot() {
+    setConfirmAction('kot');
+  }
+
+  function handleRequestGenerateBill() {
+    setConfirmAction('bill');
+  }
+
+  async function runConfirmedAction() {
+    if (saving || !confirmAction) return;
+    setSaving(true);
+    try {
+      if (confirmAction === 'kot') {
+        await onSaveKot({
+          waiter,
+          pax: pax === '' ? undefined : Number(pax),
+          orderType,
+          tableLabel,
+          note,
+        });
+      } else if (confirmAction === 'bill') {
+        await onGenerateBill({
+          subtotal,
+          discount: discountAmount,
+          tax,
+          taxRate: settings.taxRate,
+          total,
+          waiter,
+          pax: pax === '' ? undefined : Number(pax),
+          orderType,
+          tableLabel,
+          customerName,
+        });
+      }
+    } finally {
+      setSaving(false);
+      setConfirmAction(null);
+    }
+  }
 
   return (
     <div className="w-[420px] shrink-0 bg-white border-l border-line flex flex-col h-full">
@@ -182,10 +256,15 @@ export default function OrderCart({
           <button
             key={type}
             onClick={() => setOrderType(type)}
-            className={`py-2.5 transition-colors ${
+            className={`flex items-center justify-center gap-1.5 py-2.5 transition-colors ${
               orderType === type ? 'bg-rust text-white' : 'bg-ink text-white/70 hover:bg-ink/90'
             }`}
           >
+            {orderType === type && (
+              <span className="flex items-center justify-center w-3.5 h-3.5 rounded-full bg-sage shrink-0">
+                <IconCheck className="w-2.5 h-2.5 text-white" />
+              </span>
+            )}
             {type}
           </button>
         ))}
@@ -203,7 +282,7 @@ export default function OrderCart({
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5 text-sm font-semibold shrink-0">
             <IconReceipt className="w-4 h-4 text-ink-soft" />
-            Order #{orderNo}
+            Order #{orderId ?? 'New'}
           </span>
 
           <div className="flex items-center gap-2 ml-auto">
@@ -278,13 +357,13 @@ export default function OrderCart({
                 value={customerName}
                 onChange={(e) => setCustomerName(e.target.value)}
                 placeholder="Customer Name"
-                className="flex-1 border border-line rounded-md px-2.5 py-1.5 text-sm outline-none"
+                className="flex-1 min-w-0 border border-line rounded-md px-2.5 py-1.5 text-sm outline-none"
               />
               <input
                 value={customerPhone}
                 onChange={(e) => setCustomerPhone(e.target.value)}
                 placeholder="Phone Number"
-                className="flex-1 border border-line rounded-md px-2.5 py-1.5 text-sm outline-none"
+                className="flex-1 min-w-0 border border-line rounded-md px-2.5 py-1.5 text-sm outline-none"
               />
             </div>
             <div className="flex gap-2">
@@ -293,13 +372,13 @@ export default function OrderCart({
                 value={customerEmail}
                 onChange={(e) => setCustomerEmail(e.target.value)}
                 placeholder="Email"
-                className="flex-1 border border-line rounded-md px-2.5 py-1.5 text-sm outline-none"
+                className="flex-1 min-w-0 border border-line rounded-md px-2.5 py-1.5 text-sm outline-none"
               />
               <input
                 value={customerCity}
                 onChange={(e) => setCustomerCity(e.target.value)}
                 placeholder="City"
-                className="flex-1 border border-line rounded-md px-2.5 py-1.5 text-sm outline-none"
+                className="flex-1 min-w-0 border border-line rounded-md px-2.5 py-1.5 text-sm outline-none"
               />
             </div>
           </div>
@@ -357,14 +436,19 @@ export default function OrderCart({
         <span className="text-right">Price</span>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        {!hasItems ? (
+      <div className="flex-1 overflow-y-auto px-4 py-3 thin-scrollbar">
+        {loading ? (
+          <div className="h-full flex flex-col items-center justify-center text-center gap-2">
+            <Spinner className="w-6 h-6" />
+            <div className="text-xs text-ink-soft">Loading order…</div>
+          </div>
+        ) : !hasItems ? (
           <div className="h-full flex flex-col items-center justify-center text-center gap-2">
             <IconPlate className="w-14 h-14 text-line" />
             <div className="font-medium text-ink">No Item Selected</div>
             <div className="text-xs text-ink-soft">Please Select Item from Left Menu Item</div>
           </div>
-        ) : mode === 'bill' ? (
+        ) : mode === 'bill' || mode === 'settle' ? (
           <div className="space-y-3">
             {groupItemsByKot(items).map((group) => (
               <div key={group.key}>
@@ -373,10 +457,26 @@ export default function OrderCart({
                     {group.kotNo != null ? `KOT - ${group.kotNo}` : 'Earlier Items'}
                   </span>
                   {group.kotTime && <span className="text-ink-soft">Time - {group.kotTime}</span>}
+                  {mode === 'bill' && group.kotNo != null && (
+                    <button
+                      onClick={() => onReprintKot?.({ ...group, tableLabel, waiter, orderType })}
+                      title="Reprint this KOT"
+                      aria-label={`Reprint KOT ${group.kotNo}`}
+                      className="ml-auto text-ink-soft hover:text-navy"
+                    >
+                      <IconPrinter className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
                 <div className="space-y-2">
                   {group.items.map((item) => (
-                    <ItemRow key={item.lineId ?? item.id} item={item} onQtyChange={onQtyChange} onRemove={onRemove} />
+                    <ItemRow
+                      key={item.lineId ?? item.id}
+                      item={item}
+                      onQtyChange={onQtyChange}
+                      onRemove={onRemove}
+                      readOnly={mode === 'settle' || mode === 'bill'}
+                    />
                   ))}
                 </div>
               </div>
@@ -452,8 +552,12 @@ export default function OrderCart({
               )}
 
               <div className="flex justify-between text-white/60 py-0.5">
-                <span>GST ({settings.taxRate}%)</span>
-                <span className="font-mono text-white">₹{tax.toFixed(2)}</span>
+                <span>CGST ({(settings.taxRate / 2).toFixed(2)}%)</span>
+                <span className="font-mono text-white">₹{(tax / 2).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-white/60 py-0.5">
+                <span>SGST ({(settings.taxRate / 2).toFixed(2)}%)</span>
+                <span className="font-mono text-white">₹{(tax / 2).toFixed(2)}</span>
               </div>
             </div>
           )}
@@ -466,8 +570,8 @@ export default function OrderCart({
 
         {mode === 'kot' && (
           <button
-            onClick={() => onSaveKot({ orderNo, waiter, orderType, tableLabel, note })}
-            disabled={!hasItems}
+            onClick={handleRequestSaveKot}
+            disabled={!hasItems || saving}
             className="w-full bg-slate-700 hover:bg-slate-800 text-white text-sm font-semibold py-2.5 rounded disabled:opacity-40"
           >
             Save &amp; Print KOT
@@ -476,21 +580,8 @@ export default function OrderCart({
 
         {mode === 'bill' && (
           <button
-            onClick={() =>
-              onGenerateBill({
-                subtotal,
-                discount: discountAmount,
-                tax,
-                taxRate: settings.taxRate,
-                total,
-                orderNo,
-                waiter,
-                orderType,
-                tableLabel,
-                customerName,
-              })
-            }
-            disabled={!hasItems}
+            onClick={handleRequestGenerateBill}
+            disabled={!hasItems || saving}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2.5 rounded disabled:opacity-40"
           >
             Print Bill
@@ -507,7 +598,6 @@ export default function OrderCart({
                   tax,
                   taxRate: settings.taxRate,
                   total,
-                  orderNo,
                   waiter,
                   orderType,
                   tableLabel,
@@ -520,7 +610,7 @@ export default function OrderCart({
             </button>
             <button
               onClick={() =>
-                onOpenSettle({ subtotal, discount: discountAmount, tax, total, orderNo, waiter, orderType, tableLabel })
+                onOpenSettle({ subtotal, discount: discountAmount, tax, total, waiter, orderType, tableLabel })
               }
               className="bg-green-700 text-white py-2.5 rounded hover:bg-green-800"
             >
@@ -529,6 +619,22 @@ export default function OrderCart({
           </div>
         )}
       </div>
+
+      {confirmAction && (
+        <ConfirmModal
+          title={confirmAction === 'kot' ? 'Save & print this KOT?' : 'Generate this bill?'}
+          message={
+            confirmAction === 'kot'
+              ? `This sends ${itemCount} item${itemCount === 1 ? '' : 's'} to the kitchen and prints a KOT ticket.`
+              : `This prints the bill for ₹${total.toFixed(2)} and marks the table as billed.`
+          }
+          confirmLabel={confirmAction === 'kot' ? 'Save & Print' : 'Print Bill'}
+          danger={false}
+          confirming={saving}
+          onCancel={() => setConfirmAction(null)}
+          onConfirm={runConfirmedAction}
+        />
+      )}
     </div>
   );
 }

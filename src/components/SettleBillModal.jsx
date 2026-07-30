@@ -9,16 +9,27 @@ export default function SettleBillModal({ tableName, items, total, onClose, onCo
   const [amountReceived, setAmountReceived] = useState(() => (total ?? 0).toFixed(2));
   const [hybridAmounts, setHybridAmounts] = useState({ UPI: '', Cash: '', Card: '' });
   const [tip, setTip] = useState('');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
   const [settled, setSettled] = useState(false);
 
   const hybridTotal = HYBRID_MODES.reduce((sum, m) => sum + (Number(hybridAmounts[m]) || 0), 0);
   const tipAmount = Number(tip) || 0;
+  const dueTotal = total ?? 0;
 
   function updateHybridAmount(mode, value) {
     setHybridAmounts((prev) => ({ ...prev, [mode]: value }));
+    setError('');
   }
 
-  function handleSave() {
+  async function handleSave() {
+    const receivedTotal = method === 'Hybrid' ? hybridTotal : Number(amountReceived) || 0;
+    // Round to cents before comparing so float drift doesn't false-flag an exact match.
+    if (Math.round(receivedTotal * 100) < Math.round(dueTotal * 100)) {
+      setError('Amount received is less than the bill total.');
+      return;
+    }
+
     const payload =
       method === 'Hybrid'
         ? {
@@ -28,8 +39,16 @@ export default function SettleBillModal({ tableName, items, total, onClose, onCo
             tip: tipAmount,
           }
         : { method, amountReceived: Number(amountReceived) || 0, tip: tipAmount };
-    onConfirm(payload);
-    setSettled(true);
+
+    setSaving(true);
+    try {
+      await onConfirm(payload);
+      setSettled(true);
+    } catch {
+      // parent already showed a toast with the reason; stay on the form to retry
+    } finally {
+      setSaving(false);
+    }
   }
 
   function handleDone() {
@@ -70,7 +89,7 @@ export default function SettleBillModal({ tableName, items, total, onClose, onCo
           </button>
         </div>
 
-        <div className="text-sm space-y-1 mb-3 max-h-40 overflow-y-auto">
+        <div className="text-sm space-y-1 mb-3 max-h-40 overflow-y-auto thin-scrollbar">
           {(items || []).map((item, idx) => (
             <div key={idx} className="flex justify-between">
               <span>{item.qty} x {item.name}</span>
@@ -93,7 +112,10 @@ export default function SettleBillModal({ tableName, items, total, onClose, onCo
             {PAYMENT_METHODS.map((m) => (
               <button
                 key={m}
-                onClick={() => setMethod(m)}
+                onClick={() => {
+                  setMethod(m);
+                  setError('');
+                }}
                 className={`text-xs font-medium px-3 py-1.5 rounded-md border transition-colors ${
                   method === m ? 'bg-navy text-white border-navy' : 'border-line text-ink-soft hover:bg-line/40'
                 }`}
@@ -124,7 +146,7 @@ export default function SettleBillModal({ tableName, items, total, onClose, onCo
             </div>
             <div
               className={`flex justify-between text-xs pt-2 ${
-                hybridTotal === Number((total ?? 0).toFixed(2)) ? 'text-sage' : 'text-ink-soft'
+                Math.round(hybridTotal * 100) === Math.round(dueTotal * 100) ? 'text-sage' : 'text-ink-soft'
               }`}
             >
               <span>Entered</span>
@@ -139,7 +161,10 @@ export default function SettleBillModal({ tableName, items, total, onClose, onCo
               min="0"
               step="0.01"
               value={amountReceived}
-              onChange={(e) => setAmountReceived(e.target.value)}
+              onChange={(e) => {
+                setAmountReceived(e.target.value);
+                setError('');
+              }}
               className="w-full border border-line rounded-md px-3 py-2 text-sm outline-none"
             />
           </div>
@@ -158,11 +183,14 @@ export default function SettleBillModal({ tableName, items, total, onClose, onCo
           />
         </div>
 
+        {error && <p className="text-xs text-rust mb-3">{error}</p>}
+
         <button
           onClick={handleSave}
-          className="w-full bg-rust text-white text-sm font-semibold py-2.5 rounded-md hover:bg-rust/90"
+          disabled={saving}
+          className="w-full bg-rust text-white text-sm font-semibold py-2.5 rounded-md hover:bg-rust/90 disabled:opacity-60"
         >
-          Save &amp; Settle
+          {saving ? 'Settling…' : 'Save & Settle'}
         </button>
       </div>
     </div>

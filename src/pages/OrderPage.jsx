@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { useParams, useNavigate, useSearchParams, Navigate } from 'react-router-dom';
 import CategorySidebar from '../components/CategorySidebar.jsx';
@@ -7,13 +7,17 @@ import OrderCart from '../components/OrderCart.jsx';
 import Receipt from '../components/Receipt.jsx';
 import ItemVariantModal from '../components/ItemVariantModal.jsx';
 import SettleBillModal from '../components/SettleBillModal.jsx';
-import { printReceipt, formatKotTime } from '../services/print.js';
-import { IconSearch } from '../components/icons.jsx';
+import { printReceipt } from '../services/print.js';
+import Spinner from '../components/Spinner.jsx';
+import { IconSearch, IconRefresh } from '../components/icons.jsx';
 import { useMenu } from '../context/MenuContext.jsx';
 import { useTables } from '../context/TableContext.jsx';
-import { useLiveOrders } from '../context/LiveOrderContext.jsx';
-import { useKots } from '../context/KotContext.jsx';
+import { useWaiters } from '../context/WaiterContext.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
+import { getTableOrder, saveKot, generateBill, settleOrder } from '../services/api.js';
+import { getOrderMeta, setOrderMeta, clearOrderMeta } from '../services/orderMeta.js';
 
 function findTableEntry(sections, tableId) {
   for (const section of sections) {
@@ -36,15 +40,34 @@ function findMergedIntoTable(sections, tableId) {
   return null;
 }
 
+// GET /tables/:id/order items are DB rows (menu_item_id, kot_no, kot_time,
+// decimal-as-string price) — the cart has always used this camelCase shape
+// with a real number price and a lineId unique per row.
+function mapOrderItems(items) {
+  return (items || []).map((item) => ({
+    id: item.menu_item_id ?? `adhoc-${item.id}`,
+    name: item.name,
+    price: Number(item.price),
+    qty: item.qty,
+    notes: item.notes || undefined,
+    kotNo: item.kot_no,
+    kotTime: item.kot_time,
+    lineId: item.id,
+  }));
+}
+
 export default function OrderPage() {
-  const { tableId } = useParams();
+  // Route params are always strings, but table ids from the API are real
+  // numbers — without this coercion every t.id === tableId check below
+  // (findTableEntry, merge-table exclusion, etc.) would silently never match.
+  const tableId = Number(useParams().tableId);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { groups: menuGroups, items: menuItems } = useMenu();
-  const { sections, updateTable } = useTables();
-  const { getItems, addItems, setItems: setLiveItems, clearOrder } = useLiveOrders();
-  const { addKot } = useKots();
+  const { groups: menuGroups, items: menuItems, loading: menuLoading, refreshMenu } = useMenu();
+  const { sections, updateTable, refreshTables } = useTables();
+  const { waiters } = useWaiters();
   const { settings } = useSettings();
+  const { showSuccess, showError } = useToast();
   const restaurant = {
     name: settings.restaurantName,
     addressLines: [settings.addressLine1, settings.addressLine2].filter(Boolean),
@@ -65,13 +88,67 @@ export default function OrderPage() {
 
   const [activeGroup, setActiveGroup] = useState(menuGroups[0]?.name);
   const [activeCategory, setActiveCategory] = useState(null);
+  // Order screen opens on favourites by default; picking a group/category/all
+  // items switches out of it (see handleSelectGroup/handleSelectCategory below).
+  const [showFavourites, setShowFavourites] = useState(true);
+  const [showAllItems, setShowAllItems] = useState(false);
+  const [reloadingMenu, setReloadingMenu] = useState(false);
   const [search, setSearch] = useState('');
-  const [shortCode, setShortCode] = useState('');
-  const [cart, setCart] = useState(() => (mode === 'kot' ? [] : getItems(tableId)));
+  const [cart, setCart] = useState([]);
+  const [orderId, setOrderId] = useState(null);
+  const [loadingOrder, setLoadingOrder] = useState(true);
+  // Waiter/Pax captured on this table's first KOT — prefills every later KOT
+  // round, Bill, and Settle screen. Seeded synchronously from the local
+  // cache, then reconciled with the order's own persisted values once fetched.
+  const [orderMeta, setOrderMetaState] = useState(() => getOrderMeta(tableId));
   const [receiptOrder, setReceiptOrder] = useState(null);
   const [receiptType, setReceiptType] = useState('bill');
   const [variantItem, setVariantItem] = useState(null);
   const [settlePayload, setSettlePayload] = useState(null);
+
+  // menuGroups loads asynchronously from the API and is [] on first render,
+  // so the useState initializer above can't pick a group — fall back to the
+  // first one once the menu actually arrives.
+  useEffect(() => {
+    if (!activeGroup && menuGroups.length > 0) {
+      setActiveGroup(menuGroups[0].name);
+    }
+  }, [menuGroups, activeGroup]);
+
+  // KOT mode starts each round's cart empty; Bill/Settle mode loads whatever
+  // has actually been ordered so far for this table's open order.
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingOrder(true);
+    setOrderMetaState(getOrderMeta(tableId));
+    getTableOrder(tableId)
+      .then((res) => {
+        if (cancelled) return;
+        const { order, items } = res.data;
+        setOrderId(order?.id ?? null);
+        if (mode !== 'kot') {
+          setCart(mapOrderItems(items));
+        }
+        // The order itself only carries waiter_id/pax once a bill has been
+        // generated — prefer that once it exists, otherwise keep the local cache.
+        if (order?.waiter_id != null || order?.pax != null) {
+          setOrderMetaState((prev) => ({
+            waiter: waiters.find((w) => w.id === order.waiter_id)?.name || prev.waiter,
+            pax: order.pax ?? prev.pax,
+          }));
+        }
+      })
+      .catch(() => {
+        // Backend unreachable — table screen still renders with an empty cart.
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingOrder(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tableId, mode]);
 
   const availableItems = menuItems.filter((i) => i.available !== false);
   const groupCategories = menuGroups.find((g) => g.name === activeGroup)?.categories || [];
@@ -79,9 +156,42 @@ export default function OrderPage() {
   const categoryFiltered = activeCategory
     ? groupFiltered.filter((i) => i.category === activeCategory)
     : groupFiltered;
-  const filteredItems = search.trim()
-    ? categoryFiltered.filter((i) => i.name.toLowerCase().includes(search.trim().toLowerCase()))
+  const scopedItems = showAllItems
+    ? availableItems
+    : showFavourites
+    ? availableItems.filter((i) => i.isFavourite)
     : categoryFiltered;
+  const filteredItems = search.trim()
+    ? scopedItems.filter((i) => i.name.toLowerCase().includes(search.trim().toLowerCase()))
+    : scopedItems;
+
+  function handleSelectGroup(name) {
+    setShowFavourites(false);
+    setShowAllItems(false);
+    setActiveGroup(name);
+  }
+
+  function handleSelectCategory(category) {
+    setShowFavourites(false);
+    setShowAllItems(false);
+    setActiveCategory(category);
+  }
+
+  function handleSelectFavourites() {
+    setShowAllItems(false);
+    setShowFavourites(true);
+  }
+
+  function handleSelectAllItems() {
+    setShowFavourites(false);
+    setShowAllItems(true);
+  }
+
+  async function handleReloadMenu() {
+    setReloadingMenu(true);
+    await refreshMenu();
+    setReloadingMenu(false);
+  }
 
   function handleAdd(item) {
     setCart((prev) => {
@@ -94,8 +204,8 @@ export default function OrderPage() {
   }
 
   // Matches on lineId, not id — the same item can appear as separate lines
-  // across multiple KOT rounds once it's loaded from the live order store,
-  // so id alone would affect every round's line at once.
+  // across multiple KOT rounds once it's loaded from the order, so id alone
+  // would affect every round's line at once.
   function handleRemove(lineId) {
     setCart((prev) => prev.filter((i) => (i.lineId ?? i.id) !== lineId));
   }
@@ -108,7 +218,11 @@ export default function OrderPage() {
     );
   }
 
+  // The Billing panel only totals up what's already been sent via KOT, and
+  // once a bill is printed the order is locked in Settle mode too — neither
+  // allows adding or editing items from here on.
   function handleItemClick(item) {
+    if (mode === 'settle' || mode === 'bill') return;
     if (item.variants?.length) {
       setVariantItem(item);
     } else {
@@ -130,120 +244,131 @@ export default function OrderPage() {
     setVariantItem(null);
   }
 
-  // KOT mode: cart holds only this round's new items. Printing merges them
-  // into the table's running order and flips the table to Running.
-  async function handleSaveKot(meta = {}) {
-    if (cart.length === 0) return;
-    const kotNo = Math.floor(Math.random() * 9000) + 1000;
-    const kotTime = formatKotTime(new Date());
-    const order = {
-      tableName: meta.tableLabel || `Table ${tableId}`,
-      kotNo,
-      orderNo: meta.orderNo,
-      waiter: meta.waiter,
-      orderType: meta.orderType,
-      note: meta.note,
-      items: cart.map((i) => ({ name: i.name, qty: i.qty, notes: i.notes })),
-    };
-    flushSync(() => {
-      setReceiptType('kot');
-      setReceiptOrder(order);
-    });
-    await printReceipt('kot', order, null, { charWidth: 42 });
-
-    addKot({
-      kotNo,
-      tableId,
-      tableName: order.tableName,
-      waiter: meta.waiter,
-      orderType: meta.orderType,
-      note: meta.note,
-      items: cart.map((i) => ({ name: i.name, qty: i.qty, notes: i.notes })),
-    });
-
-    const merged = addItems(
-      tableId,
-      cart.map((i) => ({ id: i.id, name: i.name, price: i.price, qty: i.qty })),
-      { kotNo, kotTime }
-    );
-    const newTotal = merged.reduce((sum, i) => sum + i.price * i.qty, 0);
-    if (sectionName) {
-      updateTable(sectionName, tableId, {
-        status: 'running',
-        amount: newTotal,
-        occupiedSince: currentTable?.occupiedSince ?? Date.now(),
-      });
-    }
-    // TODO: POST to /orders/:id/items and create KOT rows via the CI4 API
-    navigate('/');
+  function waiterIdByName(name) {
+    return waiters.find((w) => w.name === name)?.id;
   }
 
-  // Bill mode: cart holds everything ordered so far. Printing the bill
-  // flips the table to Printed (awaiting settle).
+  // KOT mode: cart holds only this round's new items. Saving finds-or-creates
+  // the table's open order, inserts a new KOT round, and flips the table to
+  // Running — all server-side, so the printed ticket only happens once that
+  // has actually been recorded.
+  async function handleSaveKot(meta = {}) {
+    if (cart.length === 0) return;
+    try {
+      const res = await saveKot(tableId, {
+        order_type: meta.orderType,
+        waiter_id: waiterIdByName(meta.waiter),
+        pax: meta.pax || undefined,
+        note: meta.note?.trim() || undefined,
+        items: cart.map((i) => ({
+          menu_item_id: typeof i.id === 'number' ? i.id : null,
+          name: i.name,
+          price: i.price,
+          qty: i.qty,
+          notes: i.notes,
+        })),
+      });
+
+      setOrderId(res.data.order_id);
+
+      const order = {
+        tableName: meta.tableLabel || `Table ${tableId}`,
+        kotNo: res.data.kot.kot_no,
+        orderNo: res.data.order_id,
+        waiter: meta.waiter,
+        orderType: meta.orderType,
+        note: meta.note,
+        items: cart.map((i) => ({ name: i.name, qty: i.qty, notes: i.notes })),
+      };
+      flushSync(() => {
+        setReceiptType('kot');
+        setReceiptOrder(order);
+      });
+      await printReceipt('kot', order, null, { charWidth: 48 });
+
+      // saveKot now persists waiter/pax on the order itself, but this local
+      // cache stays as a same-device fallback (e.g. brief backend hiccups)
+      // so these fields keep prefilling every later KOT round, Bill, and
+      // Settle screen for this table regardless.
+      setOrderMeta(tableId, { waiter: meta.waiter, pax: meta.pax });
+
+      showSuccess('KOT saved.');
+      await refreshTables();
+      navigate('/');
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not save the KOT. Please try again.'));
+    }
+  }
+
+  // Bill mode: cart holds everything ordered so far. Generating the bill
+  // persists the computed totals and flips the table to Printed (awaiting
+  // settle) — guarded server-side (409) if no KOT has been saved yet.
   async function handleGenerateBill({
     subtotal,
     discount,
     tax,
     taxRate,
     total,
-    orderNo,
     waiter,
     orderType,
     tableLabel,
     customerName,
   }) {
-    if (cart.length === 0) return;
-    setLiveItems(
-      tableId,
-      cart.map((i) => ({
-        id: i.id,
-        name: i.name,
-        price: i.price,
-        qty: i.qty,
-        kotNo: i.kotNo,
-        kotTime: i.kotTime,
-        lineId: i.lineId,
-      }))
-    );
-    const order = {
-      orderNo,
-      tableName: tableLabel || `Table ${tableId}`,
-      waiter,
-      orderType,
-      customerName,
-      items: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price, amount: i.price * i.qty })),
-      subtotal,
-      discount,
-      tax,
-      taxRate,
-      total,
-    };
-    flushSync(() => {
-      setReceiptType('bill');
-      setReceiptOrder(order);
-    });
-    await printReceipt('bill', order, null, { charWidth: 42, ...restaurant });
-    if (sectionName) {
-      updateTable(sectionName, tableId, { status: 'printed', amount: total });
+    if (cart.length === 0 || !orderId) return;
+    try {
+      await generateBill(orderId, {
+        order_type: orderType,
+        waiter_id: waiterIdByName(waiter),
+        customer_name: customerName?.trim() || undefined,
+        subtotal,
+        discount,
+        tax,
+        tax_rate: taxRate,
+        total,
+      });
+
+      const order = {
+        orderNo: orderId,
+        tableName: tableLabel || `Table ${tableId}`,
+        waiter,
+        orderType,
+        customerName,
+        items: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price, amount: i.price * i.qty })),
+        subtotal,
+        discount,
+        tax,
+        taxRate,
+        total,
+      };
+      flushSync(() => {
+        setReceiptType('bill');
+        setReceiptOrder(order);
+      });
+      await printReceipt('bill', order, null, { charWidth: 48, ...restaurant });
+
+      showSuccess('Bill generated.');
+      await refreshTables();
+      navigate('/');
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not generate the bill. Please try again.'));
     }
-    navigate('/');
   }
 
-  // Settle mode: reprint doesn't change anything; settle frees the table.
+  // Settle mode: reprint doesn't change anything server-side, just re-prints
+  // using the totals already computed for this order.
   async function handleReprintBill({
     subtotal,
     discount,
     tax,
     taxRate,
     total,
-    orderNo,
     waiter,
     orderType,
     tableLabel,
     customerName,
   }) {
     const order = {
-      orderNo,
+      orderNo: orderId,
       tableName: tableLabel || `Table ${tableId}`,
       waiter,
       orderType,
@@ -259,7 +384,27 @@ export default function OrderPage() {
       setReceiptType('bill');
       setReceiptOrder(order);
     });
-    await printReceipt('bill', order, null, { charWidth: 42, ...restaurant });
+    await printReceipt('bill', order, null, { charWidth: 48, ...restaurant });
+  }
+
+  // Reprints one KOT round from the Billing panel — pulls just that round's
+  // items back out of the shared cart (they all carry the kotNo they were
+  // sent under) and re-sends the same ticket layout used on the original save.
+  async function handleReprintKot({ kotNo, tableLabel, waiter, orderType }) {
+    const order = {
+      kotNo,
+      tableName: tableLabel || `Table ${tableId}`,
+      waiter,
+      orderType,
+      items: cart
+        .filter((i) => i.kotNo === kotNo)
+        .map((i) => ({ name: i.name, qty: i.qty, notes: i.notes })),
+    };
+    flushSync(() => {
+      setReceiptType('kot');
+      setReceiptOrder(order);
+    });
+    await printReceipt('kot', order, null, { charWidth: 48 });
   }
 
   function handleOpenSettle(totals) {
@@ -272,16 +417,20 @@ export default function OrderPage() {
     }
   }
 
-  function handleConfirmSettle() {
-    const idsToFree = [tableId, ...(currentTable?.mergedWith || [])];
-    idsToFree.forEach((id) => {
-      clearOrder(id);
-      const entry = findTableEntry(sections, id);
-      if (entry.sectionName) {
-        updateTable(entry.sectionName, id, { status: 'blank', mergedWith: [] });
-      }
-    });
-    // TODO: POST to /orders/:id/close via the CI4 API
+  // Records payment and closes the order — guarded server-side (409) if the
+  // table isn't currently Printed. Frees this table and anything merged into
+  // it automatically, so no local table-status bookkeeping is needed here.
+  async function handleConfirmSettle(payload) {
+    if (!orderId) return;
+    try {
+      await settleOrder(orderId, payload);
+      clearOrderMeta(tableId);
+      showSuccess('Bill settled.');
+      await refreshTables();
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not settle the bill. Please try again.'));
+      throw err;
+    }
   }
 
   function handleSettleDone() {
@@ -300,9 +449,13 @@ export default function OrderPage() {
       <CategorySidebar
         groups={menuGroups}
         activeGroup={activeGroup}
-        onSelectGroup={setActiveGroup}
+        onSelectGroup={handleSelectGroup}
         activeCategory={activeCategory}
-        onSelectCategory={setActiveCategory}
+        onSelectCategory={handleSelectCategory}
+        showFavourites={showFavourites}
+        onSelectFavourites={handleSelectFavourites}
+        showAllItems={showAllItems}
+        onSelectAllItems={handleSelectAllItems}
       />
 
       <div className="flex-1 flex flex-col min-w-0 bg-paper">
@@ -316,20 +469,34 @@ export default function OrderPage() {
               className="outline-none bg-transparent text-sm w-full"
             />
           </div>
-          <input
-            value={shortCode}
-            onChange={(e) => setShortCode(e.target.value)}
-            placeholder="Short Code"
-            className="border border-line rounded-md px-3 py-2 text-sm outline-none w-40 bg-white"
-          />
+          <button
+            onClick={handleReloadMenu}
+            disabled={reloadingMenu}
+            title="Reload menu items from the server"
+            className="flex items-center gap-1.5 border border-line rounded-md px-3 py-2 text-sm text-ink-soft hover:bg-line/40 disabled:opacity-60 whitespace-nowrap"
+          >
+            <IconRefresh className={`w-4 h-4 ${reloadingMenu ? 'animate-spin' : ''}`} />
+            Reload Menu
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
-            {filteredItems.map((item) => (
-              <MenuItemCard key={item.id} item={item} onAdd={handleItemClick} />
-            ))}
-          </div>
+          {menuLoading && menuItems.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center gap-2 text-ink-soft text-sm">
+              <Spinner className="w-6 h-6" />
+              <span>Loading menu…</span>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3">
+              {filteredItems.map((item) => (
+                <MenuItemCard key={item.id} item={item} onAdd={handleItemClick} disabled={mode === 'settle' || mode === 'bill'} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="py-2.5 text-center text-sm text-ink-soft/70 border-t border-line bg-white">
+          Design &amp; Developed by : Layoncube
         </div>
       </div>
 
@@ -337,18 +504,23 @@ export default function OrderPage() {
         tableId={tableId}
         tableName={currentTable?.name || tableId}
         sectionName={sectionName}
+        orderId={orderId}
         items={cart}
+        loading={loadingOrder}
         onRemove={handleRemove}
         onQtyChange={handleQtyChange}
         mode={mode}
         onSaveKot={handleSaveKot}
         onGenerateBill={handleGenerateBill}
         onReprintBill={handleReprintBill}
+        onReprintKot={handleReprintKot}
         onOpenSettle={handleOpenSettle}
         allTables={allTables}
         initialMergedWith={currentTable?.mergedWith || []}
         onMergeChange={handleMergeChange}
         initialOrderType={sectionOrderType}
+        initialWaiter={orderMeta.waiter || ''}
+        initialPax={orderMeta.pax ?? ''}
       />
 
       <Receipt type={receiptType} order={receiptOrder} restaurant={restaurant} />

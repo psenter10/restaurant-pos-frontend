@@ -9,11 +9,11 @@ import TopToolbar from './components/TopToolbar.jsx';
 import AdminLayout from './components/AdminLayout.jsx';
 import { MenuProvider } from './context/MenuContext.jsx';
 import { TableProvider } from './context/TableContext.jsx';
-import { LiveOrderProvider } from './context/LiveOrderContext.jsx';
 import { KotProvider } from './context/KotContext.jsx';
 import { SettingsProvider } from './context/SettingsContext.jsx';
 import { UserProvider } from './context/UserContext.jsx';
 import { WaiterProvider } from './context/WaiterContext.jsx';
+import { ToastProvider } from './context/ToastContext.jsx';
 import { isAuthenticated, getRole, hasPosAccess } from './services/auth.js';
 
 function RequireAuth({ children }) {
@@ -55,6 +55,7 @@ function AppLayout() {
 export default function App() {
   return (
     <BrowserRouter>
+      <ToastProvider>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route
@@ -62,41 +63,40 @@ export default function App() {
           element={
             <RequireAuth>
               <SettingsProvider>
-                <UserProvider>
-                  <WaiterProvider>
-                    <MenuProvider>
-                      <TableProvider>
-                        <LiveOrderProvider>
-                          <KotProvider>
-                            <Routes>
-                              <Route
-                                path="/admin/*"
-                                element={
-                                  <RequireRole role="admin">
-                                    <AdminLayout />
-                                  </RequireRole>
-                                }
-                              />
-                              <Route
-                                path="/*"
-                                element={
-                                  <RequireRole role="pos">
-                                    <AppLayout />
-                                  </RequireRole>
-                                }
-                              />
-                            </Routes>
-                          </KotProvider>
-                        </LiveOrderProvider>
-                      </TableProvider>
-                    </MenuProvider>
-                  </WaiterProvider>
-                </UserProvider>
+                <WaiterProvider>
+                  <MenuProvider>
+                    <TableProvider>
+                      <KotProvider>
+                        <Routes>
+                          <Route
+                            path="/admin/*"
+                            element={
+                              <RequireRole role="admin">
+                                <UserProvider>
+                                  <AdminLayout />
+                                </UserProvider>
+                              </RequireRole>
+                            }
+                          />
+                          <Route
+                            path="/*"
+                            element={
+                              <RequireRole role="pos">
+                                <AppLayout />
+                              </RequireRole>
+                            }
+                          />
+                        </Routes>
+                      </KotProvider>
+                    </TableProvider>
+                  </MenuProvider>
+                </WaiterProvider>
               </SettingsProvider>
             </RequireAuth>
           }
         />
       </Routes>
+      </ToastProvider>
     </BrowserRouter>
   );
 }

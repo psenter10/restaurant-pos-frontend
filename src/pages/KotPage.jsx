@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useKots } from '../context/KotContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
 import { IconChevronDown, IconReceipt } from '../components/icons.jsx';
 import ConfirmModal from '../components/ConfirmModal.jsx';
 
@@ -119,32 +121,70 @@ const CONFIRM_COPY = {
   },
 };
 
+function todayStr() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export default function KotPage() {
-  const { kots, markPreparing, markCompleted, cancelKot } = useKots();
+  const { kots, date, setDate, refreshKots, updateKotStatus, cancelKot } = useKots();
+  const { showSuccess, showError } = useToast();
   const [now, setNow] = useState(Date.now());
   const [activeTab, setActiveTab] = useState('new');
   const [confirmAction, setConfirmAction] = useState(null); // { type: 'preparing' | 'completed' | 'cancel', kot }
+  const [confirming, setConfirming] = useState(false);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
 
+  // KotProvider lives above the router and stays mounted across page
+  // switches, so its own date-keyed fetch only runs once per date change —
+  // this page itself mounts fresh every time you navigate to /kitchen, so
+  // re-fetching here is what actually makes "switching to Kitchen" reload data.
+  useEffect(() => {
+    refreshKots();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const visibleKots = kots.filter((k) => k.status === activeTab);
 
-  function runConfirmedAction() {
+  async function runConfirmedAction() {
     if (!confirmAction) return;
     const { type, kot } = confirmAction;
-    if (type === 'preparing') markPreparing(kot.id);
-    else if (type === 'completed') markCompleted(kot.id);
-    else if (type === 'cancel') cancelKot(kot.id);
+    setConfirming(true);
+    try {
+      if (type === 'preparing') {
+        await updateKotStatus(kot.id, 'preparing');
+        showSuccess('KOT marked as preparing.');
+      } else if (type === 'completed') {
+        await updateKotStatus(kot.id, 'completed');
+        showSuccess('KOT marked as completed.');
+      } else if (type === 'cancel') {
+        await cancelKot(kot.id);
+        showSuccess('KOT cancelled.');
+      }
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not update the KOT. Please try again.'));
+    }
+    setConfirming(false);
     setConfirmAction(null);
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
         <h1 className="font-display text-2xl font-semibold">Kitchen Display</h1>
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-ink-soft font-medium">Date</label>
+          <input
+            type="date"
+            value={date}
+            max={todayStr()}
+            onChange={(e) => setDate(e.target.value)}
+            className="border border-line rounded-md px-3 py-2 text-sm"
+          />
+        </div>
       </div>
 
       <div className="flex items-center gap-1 border-b border-line mb-6">
@@ -186,6 +226,7 @@ export default function KotPage() {
           message={CONFIRM_COPY[confirmAction.type].message}
           confirmLabel={CONFIRM_COPY[confirmAction.type].confirmLabel}
           danger={CONFIRM_COPY[confirmAction.type].danger}
+          confirming={confirming}
           onCancel={() => setConfirmAction(null)}
           onConfirm={runConfirmedAction}
         />

@@ -1,53 +1,57 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-
-const STORAGE_KEY = 'pos_waiters';
-
-// Seed data — these were previously a hardcoded list inside OrderCart.jsx.
-const SEED_WAITERS = ['Ramesh', 'Suresh', 'Anita', 'Kavya', 'Vikram'].map((name, idx) => ({
-  id: idx + 1,
-  name,
-}));
-
-function loadWaiters() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) return parsed;
-    }
-  } catch {
-    // ignore corrupt storage, fall back to seed data
-  }
-  return SEED_WAITERS;
-}
+import {
+  getWaiters,
+  createWaiter as apiCreateWaiter,
+  updateWaiter as apiUpdateWaiter,
+  deleteWaiter as apiDeleteWaiter,
+  toggleWaiterActive as apiToggleWaiterActive,
+} from '../services/api.js';
 
 const WaiterContext = createContext(null);
 
 export function WaiterProvider({ children }) {
-  const [waiters, setWaiters] = useState(loadWaiters);
+  const [waiters, setWaiters] = useState([]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(waiters));
-  }, [waiters]);
+    refresh();
+  }, []);
 
-  function addWaiter(name) {
-    const trimmed = name.trim();
-    if (!trimmed || waiters.some((w) => w.name.toLowerCase() === trimmed.toLowerCase())) return;
-    setWaiters((prev) => [...prev, { id: Date.now(), name: trimmed }]);
+  function refresh() {
+    return getWaiters()
+      .then((res) => {
+        // The API returns active as 0/1 (MySQL tinyint); normalize to a real
+        // boolean here so every consumer's `active !== false` check (written
+        // when this was frontend-only state) keeps working unchanged — a
+        // strict `0 !== false` would otherwise always be true in JS.
+        setWaiters(res.data.map((w) => ({ ...w, active: w.active !== 0 })));
+      })
+      .catch(() => {
+        // Backend unreachable — leave the list empty rather than show stale data.
+      });
   }
 
-  function renameWaiter(id, name) {
+  async function addWaiter(name) {
     const trimmed = name.trim();
     if (!trimmed) return;
-    setWaiters((prev) => prev.map((w) => (w.id === id ? { ...w, name: trimmed } : w)));
+    await apiCreateWaiter({ name: trimmed });
+    await refresh();
   }
 
-  function removeWaiter(id) {
-    setWaiters((prev) => prev.filter((w) => w.id !== id));
+  async function renameWaiter(id, name) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    await apiUpdateWaiter(id, { name: trimmed });
+    await refresh();
   }
 
-  function toggleWaiterActive(id) {
-    setWaiters((prev) => prev.map((w) => (w.id === id ? { ...w, active: w.active === false } : w)));
+  async function removeWaiter(id) {
+    await apiDeleteWaiter(id);
+    await refresh();
+  }
+
+  async function toggleWaiterActive(id) {
+    await apiToggleWaiterActive(id);
+    await refresh();
   }
 
   return (

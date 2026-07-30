@@ -1,205 +1,221 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { getMenuItems, createMenuItem, updateMenuItem, deleteMenuItem } from '../services/api.js';
-
-const STORAGE_KEY = 'pos_menu_data';
-
-// Seed data so the app renders before the CI4 API + admin edits are in place.
-const SEED_GROUPS = [
-  { name: 'Fast Food', categories: ['Burgers', 'Egg', 'Hawaiian Wraps', 'Maggi Lover', 'Pizza'], available: true },
-  { name: 'Starters', categories: ['Chakhna', 'Chinese Snacks', 'Garlic Bread'], available: true },
-  { name: 'Main Course', categories: ['Chicken', 'Gravy Items', 'Chinese Soups'], available: true },
-  { name: 'Beverages', categories: ['Beverages'], available: true },
-];
-
-const SEED_ITEMS = [
-  { id: 1, name: 'Aloo Tikki Burger', price: 120, category: 'Burgers', veg: true, available: true },
-  { id: 2, name: 'Cheese Garlic Bread', price: 150, category: 'Garlic Bread', veg: true, available: true },
-  { id: 3, name: 'Chiken Angara (Boneless)', price: 260, category: 'Chicken', veg: false, available: true },
-  { id: 4, name: 'Chilli Mushroom', price: 190, category: 'Chinese Snacks', veg: true, available: true },
-  { id: 5, name: 'Dahi Ke Shole', price: 140, category: 'Chakhna', veg: true, available: true },
-  { id: 6, name: 'Fry Masala Papad', price: 60, category: 'Chakhna', veg: true, available: true },
-  { id: 7, name: 'Green Salad', price: 80, category: 'Chakhna', veg: true, available: true },
-  { id: 8, name: 'Grilled Paneer Sandwich', price: 130, category: 'Burgers', veg: true, available: true },
-  { id: 9, name: 'Hakka Noodles', price: 150, category: 'Chinese Snacks', veg: true, available: true },
-  { id: 10, name: 'Masala Dosa', price: 110, category: 'Chakhna', veg: true, available: true },
-  { id: 11, name: 'Omlate (3 Eggs)', price: 90, category: 'Egg', veg: false, available: true },
-  { id: 12, name: 'Open Item', price: 0, category: 'Chakhna', veg: true, available: true },
-  { id: 13, name: 'Oreo Shake', price: 140, category: 'Beverages', veg: true, available: true },
-  { id: 14, name: 'Paneer Wrap', price: 150, category: 'Hawaiian Wraps', veg: true, available: true },
-  { id: 15, name: 'Raj Kachodi', price: 90, category: 'Chakhna', veg: true, available: true },
-  { id: 16, name: 'RasMalai', price: 100, category: 'Chakhna', veg: true, available: true },
-  { id: 17, name: 'Salted Lassi', price: 70, category: 'Beverages', veg: true, available: true },
-  { id: 18, name: 'Spl. Shahi Paneer', price: 220, category: 'Gravy Items', veg: true, available: true },
-  { id: 19, name: 'Spring Roll', price: 140, category: 'Chinese Snacks', veg: true, available: true },
-  { id: 20, name: 'Strawberry Mojito', price: 130, category: 'Beverages', veg: true, available: true },
-  { id: 21, name: 'Sweet Corn Soup', price: 110, category: 'Chinese Soups', veg: true, available: true },
-  { id: 22, name: 'Tandoori Momos (8 Pcs)', price: 180, category: 'Chinese Snacks', veg: true, available: true },
-  { id: 23, name: 'Tandoori Pasta', price: 200, category: 'Gravy Items', veg: true, available: true },
-  { id: 24, name: 'Veg Burger', price: 110, category: 'Burgers', veg: true, available: true },
-  { id: 25, name: 'Water Bottle', price: 20, category: 'Beverages', veg: true, available: true },
-  {
-    id: 26,
-    name: 'Mexican Farm House',
-    price: 220,
-    category: 'Pizza',
-    veg: true,
-    available: true,
-    variants: [
-      { name: 'Small', price: 220 },
-      { name: 'Medium', price: 410 },
-      { name: 'Large', price: 649 },
-      { name: 'Extra Large', price: 749 },
-    ],
-    addons: [
-      { name: 'Extra Cheese', price: 80 },
-      { name: 'Thin Crust', price: 60 },
-      { name: 'Pan Base', price: 50 },
-      { name: 'Extra Toppings', price: 50 },
-      { name: 'Cheese Burst', price: 160 },
-    ],
-  },
-];
-
-const SEED_CATEGORIES = Array.from(new Set(SEED_ITEMS.map((i) => i.category))).sort();
-
-function loadInitial() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed.groups && parsed.items && parsed.categories) {
-        return { categoryAvailability: {}, ...parsed };
-      }
-    }
-  } catch {
-    // ignore corrupt storage, fall back to seed data
-  }
-  return { groups: SEED_GROUPS, items: SEED_ITEMS, categories: SEED_CATEGORIES, categoryAvailability: {} };
-}
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import {
+  getMenuCategories,
+  createMenuCategory,
+  updateMenuCategory,
+  deleteMenuCategory,
+  toggleMenuCategoryAvailability,
+  getMenuGroups,
+  createMenuGroup,
+  updateMenuGroup,
+  deleteMenuGroup,
+  toggleMenuGroupAvailability,
+  addCategoryToGroup as apiAddCategoryToGroup,
+  removeCategoryFromGroup as apiRemoveCategoryFromGroup,
+  getMenuItems,
+  createMenuItem,
+  updateMenuItem as apiUpdateMenuItem,
+  deleteMenuItem,
+  toggleMenuItemAvailability,
+  toggleMenuItemFavourite,
+} from '../services/api.js';
 
 const MenuContext = createContext(null);
 
+// The API models categories as entities with their own id/available and
+// items reference them by category_id; the app has always used a plain
+// category name string on items/groups (MenuPage, OrderPage, CategorySidebar),
+// so that join happens here and every consumer keeps working unchanged.
+function mapCategory(row) {
+  return { id: row.id, name: row.name, available: row.available !== 0 };
+}
+
+function mapGroup(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    available: row.available !== 0,
+    categories: (row.categories || []).map((c) => c.name),
+  };
+}
+
+function mapItem(row, categoryById) {
+  const item = {
+    id: row.id,
+    name: row.name,
+    price: Number(row.price),
+    category: categoryById.get(row.category_id)?.name || '',
+    veg: row.veg !== 0,
+    available: row.available !== 0,
+    isFavourite: row.is_favourite !== 0,
+  };
+  if (row.variants?.length) {
+    item.variants = row.variants.map((v) => ({ id: v.id, name: v.name, price: Number(v.price) }));
+  }
+  if (row.addons?.length) {
+    item.addons = row.addons.map((a) => ({ id: a.id, name: a.name, price: Number(a.price) }));
+  }
+  return item;
+}
+
 export function MenuProvider({ children }) {
-  const initial = loadInitial();
-  const [groups, setGroups] = useState(initial.groups);
-  const [items, setItems] = useState(initial.items);
-  const [categories, setCategories] = useState(initial.categories);
-  // Categories stay plain strings (items/groups reference them by name), so
-  // availability lives in a parallel name→bool map instead of on the string.
-  const [categoryAvailability, setCategoryAvailability] = useState(initial.categoryAvailability);
+  const [categoryRows, setCategoryRows] = useState([]);
+  const [groups, setGroups] = useState([]);
+  const [items, setItems] = useState([]);
+  // Only true until the very first load completes — a manual "Reload Menu"
+  // click or a mutation's own refresh() shouldn't re-flash a full loading
+  // state, so those are tracked by the caller instead (see OrderPage).
+  const [loading, setLoading] = useState(true);
+
+  const categories = useMemo(() => categoryRows.map((c) => c.name).sort(), [categoryRows]);
+  const categoryByName = useMemo(() => new Map(categoryRows.map((c) => [c.name, c])), [categoryRows]);
 
   useEffect(() => {
-    getMenuItems()
-      .then((res) => setItems(res.data))
-      .catch(() => {
-        // API not reachable yet — keep localStorage/seed data
-      });
+    refresh().finally(() => setLoading(false));
   }, []);
 
-  useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ groups, items, categories, categoryAvailability }));
-  }, [groups, items, categories, categoryAvailability]);
-
-  function addItem(data) {
-    const newItem = { available: true, veg: true, ...data, id: Date.now() };
-    setItems((prev) => [...prev, newItem]);
-    createMenuItem(newItem).catch(() => {});
+  function refresh() {
+    return Promise.all([getMenuCategories(), getMenuGroups(), getMenuItems()])
+      .then(([catRes, groupRes, itemRes]) => {
+        const cats = catRes.data.map(mapCategory);
+        const catById = new Map(cats.map((c) => [c.id, c]));
+        setCategoryRows(cats);
+        setGroups(groupRes.data.map(mapGroup));
+        setItems(itemRes.data.map((row) => mapItem(row, catById)));
+      })
+      .catch(() => {
+        // Backend unreachable — leave the menu empty rather than show stale data.
+      });
   }
 
-  function updateItem(id, patch) {
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...patch } : i)));
-    updateMenuItem(id, patch).catch(() => {});
+  // --- Items ---
+  // ItemFormModal always submits the complete desired item shape (not a
+  // partial patch), matching the API's full-replace semantics for variants/addons.
+  async function addItem(data) {
+    const cat = categoryByName.get(data.category);
+    if (!cat) return;
+    await createMenuItem({
+      name: data.name,
+      category_id: cat.id,
+      price: data.price,
+      veg: data.veg,
+      available: data.available,
+      variants: data.variants ?? [],
+      addons: data.addons ?? [],
+    });
+    await refresh();
   }
 
-  function removeItem(id) {
-    setItems((prev) => prev.filter((i) => i.id !== id));
-    deleteMenuItem(id).catch(() => {});
+  async function updateItem(id, data) {
+    const cat = categoryByName.get(data.category);
+    if (!cat) return;
+    await apiUpdateMenuItem(id, {
+      name: data.name,
+      category_id: cat.id,
+      price: data.price,
+      veg: data.veg,
+      available: data.available,
+      variants: data.variants ?? [],
+      addons: data.addons ?? [],
+    });
+    await refresh();
   }
 
-  function toggleAvailability(id) {
-    setItems((prev) => prev.map((i) => (i.id === id ? { ...i, available: i.available === false } : i)));
+  async function removeItem(id) {
+    await deleteMenuItem(id);
+    await refresh();
   }
 
-  function addCategory(name) {
+  async function toggleAvailability(id) {
+    await toggleMenuItemAvailability(id);
+    await refresh();
+  }
+
+  async function toggleFavourite(id) {
+    await toggleMenuItemFavourite(id);
+    await refresh();
+  }
+
+  // --- Categories ---
+  async function addCategory(name) {
     const trimmed = name.trim();
-    if (!trimmed || categories.includes(trimmed)) return;
-    setCategories((prev) => [...prev, trimmed].sort());
+    if (!trimmed) return;
+    await createMenuCategory({ name: trimmed });
+    await refresh();
   }
 
-  function renameCategory(oldName, newName) {
+  async function renameCategory(oldName, newName) {
     const trimmed = newName.trim();
-    if (!trimmed || trimmed === oldName || categories.includes(trimmed)) return;
-    setCategories((prev) => prev.map((c) => (c === oldName ? trimmed : c)).sort());
-    setItems((prev) => prev.map((i) => (i.category === oldName ? { ...i, category: trimmed } : i)));
-    setGroups((prev) =>
-      prev.map((g) => ({
-        ...g,
-        categories: g.categories.map((c) => (c === oldName ? trimmed : c)),
-      }))
-    );
-    setCategoryAvailability((prev) => {
-      if (!(oldName in prev)) return prev;
-      const { [oldName]: value, ...rest } = prev;
-      return { ...rest, [trimmed]: value };
-    });
+    if (!trimmed) return;
+    const cat = categoryByName.get(oldName);
+    if (!cat) return;
+    await updateMenuCategory(cat.id, { name: trimmed });
+    await refresh();
   }
 
-  function deleteCategory(name) {
-    setCategories((prev) => prev.filter((c) => c !== name));
-    setItems((prev) => prev.filter((i) => i.category !== name));
-    setGroups((prev) => prev.map((g) => ({ ...g, categories: g.categories.filter((c) => c !== name) })));
-    setCategoryAvailability((prev) => {
-      const { [name]: _removed, ...rest } = prev;
-      return rest;
-    });
+  async function deleteCategory(name) {
+    const cat = categoryByName.get(name);
+    if (!cat) return;
+    await deleteMenuCategory(cat.id);
+    await refresh();
   }
 
   function isCategoryAvailable(name) {
-    return categoryAvailability[name] !== false;
+    return categoryByName.get(name)?.available !== false;
   }
 
-  function toggleCategoryAvailability(name) {
-    setCategoryAvailability((prev) => ({ ...prev, [name]: prev[name] === false }));
+  async function toggleCategoryAvailability(name) {
+    const cat = categoryByName.get(name);
+    if (!cat) return;
+    await toggleMenuCategoryAvailability(cat.id);
+    await refresh();
   }
 
-  function addGroup(name) {
+  // --- Groups ---
+  async function addGroup(name) {
     const trimmed = name.trim();
-    if (!trimmed || groups.some((g) => g.name === trimmed)) return;
-    setGroups((prev) => [...prev, { name: trimmed, categories: [], available: true }]);
+    if (!trimmed) return;
+    await createMenuGroup({ name: trimmed });
+    await refresh();
   }
 
-  function renameGroup(oldName, newName) {
+  async function renameGroup(oldName, newName) {
     const trimmed = newName.trim();
-    if (!trimmed || trimmed === oldName) return;
-    setGroups((prev) => prev.map((g) => (g.name === oldName ? { ...g, name: trimmed } : g)));
+    if (!trimmed) return;
+    const group = groups.find((g) => g.name === oldName);
+    if (!group) return;
+    await updateMenuGroup(group.id, { name: trimmed });
+    await refresh();
   }
 
-  function deleteGroup(name) {
-    setGroups((prev) => prev.filter((g) => g.name !== name));
+  async function deleteGroup(name) {
+    const group = groups.find((g) => g.name === name);
+    if (!group) return;
+    await deleteMenuGroup(group.id);
+    await refresh();
   }
 
-  function toggleGroupAvailability(name) {
-    setGroups((prev) =>
-      prev.map((g) => (g.name === name ? { ...g, available: g.available === false } : g))
-    );
+  async function toggleGroupAvailability(name) {
+    const group = groups.find((g) => g.name === name);
+    if (!group) return;
+    await toggleMenuGroupAvailability(group.id);
+    await refresh();
   }
 
-  function addCategoryToGroup(groupName, categoryName) {
-    setGroups((prev) =>
-      prev.map((g) =>
-        g.name === groupName && !g.categories.includes(categoryName)
-          ? { ...g, categories: [...g.categories, categoryName] }
-          : g
-      )
-    );
+  async function addCategoryToGroup(groupName, categoryName) {
+    const group = groups.find((g) => g.name === groupName);
+    const cat = categoryByName.get(categoryName);
+    if (!group || !cat) return;
+    await apiAddCategoryToGroup(group.id, cat.id);
+    await refresh();
   }
 
-  function removeCategoryFromGroup(groupName, categoryName) {
-    setGroups((prev) =>
-      prev.map((g) =>
-        g.name === groupName ? { ...g, categories: g.categories.filter((c) => c !== categoryName) } : g
-      )
-    );
+  async function removeCategoryFromGroup(groupName, categoryName) {
+    const group = groups.find((g) => g.name === groupName);
+    const cat = categoryByName.get(categoryName);
+    if (!group || !cat) return;
+    await apiRemoveCategoryFromGroup(group.id, cat.id);
+    await refresh();
   }
 
   return (
@@ -208,10 +224,13 @@ export function MenuProvider({ children }) {
         groups,
         items,
         categories,
+        loading,
+        refreshMenu: refresh,
         addItem,
         updateItem,
         removeItem,
         toggleAvailability,
+        toggleFavourite,
         addCategory,
         renameCategory,
         deleteCategory,

@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import TableCard from '../components/TableCard.jsx';
 import SettleBillModal from '../components/SettleBillModal.jsx';
+import Spinner from '../components/Spinner.jsx';
 import { IconRefresh, IconPlus } from '../components/icons.jsx';
 import { useTables } from '../context/TableContext.jsx';
-import { useLiveOrders } from '../context/LiveOrderContext.jsx';
-import { useSettings } from '../context/SettingsContext.jsx';
+import { useToast } from '../context/ToastContext.jsx';
+import { apiErrorMessage } from '../utils/apiError.js';
+import { getTableOrder, settleOrder } from '../services/api.js';
 import TableReservationModal from '../components/TableReservationModal.jsx';
 
 const LEGEND = [
@@ -15,47 +17,65 @@ const LEGEND = [
 ];
 
 export default function TablesPage() {
-  const { sections, updateTable } = useTables();
-  const { getItems, clearOrder } = useLiveOrders();
-  const { settings } = useSettings();
+  const { sections, loading, refreshTables } = useTables();
+  const { showSuccess, showError } = useToast();
   const [now, setNow] = useState(Date.now());
   const [refreshing, setRefreshing] = useState(false);
   const [showReservation, setShowReservation] = useState(false);
-  const [settleTarget, setSettleTarget] = useState(null); // { table, sectionName }
+  const [settleTarget, setSettleTarget] = useState(null); // { table, orderId, items, total }
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
 
-  function handleRefresh() {
+  // Staff leave this screen open all shift — poll in the background so
+  // admin-side changes (new/disabled tables, sections, etc.) show up without
+  // needing a manual refresh.
+  useEffect(() => {
+    const id = setInterval(() => {
+      refreshTables();
+    }, 60000);
+    return () => clearInterval(id);
+  }, [refreshTables]);
+
+  async function handleRefresh() {
     setRefreshing(true);
     setNow(Date.now());
-    setTimeout(() => setRefreshing(false), 400);
+    await refreshTables();
+    setRefreshing(false);
   }
 
-  function findSectionName(tableId) {
-    return sections.find((s) => s.tables.some((t) => t.id === tableId))?.name;
+  // Pulls the table's real open order from the API so the Settle modal shows
+  // the actual persisted totals (from Generate Bill) rather than recomputing
+  // them client-side.
+  async function handleOpenSettle(table) {
+    try {
+      const res = await getTableOrder(table.id);
+      const { order, items } = res.data;
+      setSettleTarget({
+        table,
+        orderId: order?.id,
+        items: (items || []).map((i) => ({ name: i.name, price: Number(i.price), qty: i.qty })),
+        total: Number(order?.total) || 0,
+      });
+    } catch (err) {
+      showError(apiErrorMessage(err, "Could not load this table's order. Please try again."));
+    }
   }
 
-  function handleOpenSettle(table) {
-    const sectionName = findSectionName(table.id);
-    const items = getItems(table.id);
-    const subtotal = items.reduce((sum, i) => sum + i.price * i.qty, 0);
-    const total = subtotal + subtotal * (settings.taxRate / 100);
-    setSettleTarget({ table, sectionName, items, total });
-  }
-
-  function handleConfirmSettle() {
-    const { table } = settleTarget;
-    const idsToFree = [table.id, ...(table.mergedWith || [])];
-    idsToFree.forEach((id) => {
-      clearOrder(id);
-      const sn = findSectionName(id);
-      if (sn) {
-        updateTable(sn, id, { status: 'blank', mergedWith: [] });
-      }
-    });
+  // Settling frees this table and anything merged into it automatically —
+  // guarded server-side (409) if the table isn't currently Printed.
+  async function handleConfirmSettle(payload) {
+    if (!settleTarget?.orderId) return;
+    try {
+      await settleOrder(settleTarget.orderId, payload);
+      showSuccess('Bill settled.');
+      await refreshTables();
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not settle the bill. Please try again.'));
+      throw err;
+    }
   }
 
   // Direct link: this table's own mergedWith list, resolved to names.
@@ -106,6 +126,13 @@ export default function TablesPage() {
           </button>
         </div>
       </div>
+
+      {loading && sections.length === 0 && (
+        <div className="flex flex-col items-center justify-center gap-2 py-16 text-ink-soft text-sm">
+          <Spinner className="w-6 h-6" />
+          <span>Loading tables…</span>
+        </div>
+      )}
 
       {sections.map((section) => (
         <div key={section.name} className="mb-8">

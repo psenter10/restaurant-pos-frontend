@@ -1,7 +1,17 @@
 import React, { useState } from 'react';
 import { IconChevronDown } from './icons.jsx';
 
-export default function CategorySidebar({ groups, activeGroup, onSelectGroup, activeCategory, onSelectCategory }) {
+export default function CategorySidebar({
+  groups,
+  activeGroup,
+  onSelectGroup,
+  activeCategory,
+  onSelectCategory,
+  showFavourites,
+  onSelectFavourites,
+  showAllItems,
+  onSelectAllItems,
+}) {
   const [open, setOpen] = useState(false);
   const categories = groups.find((g) => g.name === activeGroup)?.categories || [];
 
@@ -39,12 +49,21 @@ export default function CategorySidebar({ groups, activeGroup, onSelectGroup, ac
       </div>
 
       <button
-        onClick={() => onSelectCategory(null)}
+        onClick={onSelectFavourites}
         className={`text-left text-sm font-medium px-3 py-2.5 border-b border-line/60 transition-colors ${
-          activeCategory === null ? 'bg-sage text-white' : 'bg-white text-ink hover:bg-line/60'
+          showFavourites ? 'bg-sage text-white' : 'bg-white text-ink hover:bg-line/60'
         }`}
       >
         Favorite Items
+      </button>
+
+      <button
+        onClick={onSelectAllItems}
+        className={`text-left text-sm font-medium px-3 py-2.5 border-b border-line/60 transition-colors ${
+          showAllItems ? 'bg-sage text-white' : 'bg-white text-ink hover:bg-line/60'
+        }`}
+      >
+        All Items
       </button>
 
       {categories.map((cat) => (
@@ -52,7 +71,9 @@ export default function CategorySidebar({ groups, activeGroup, onSelectGroup, ac
           key={cat}
           onClick={() => onSelectCategory(cat)}
           className={`text-left text-sm px-3 py-2.5 border-b border-line/60 transition-colors ${
-            activeCategory === cat ? 'bg-sage text-white font-medium' : 'bg-white text-ink-soft hover:bg-line/60'
+            !showFavourites && !showAllItems && activeCategory === cat
+              ? 'bg-sage text-white font-medium'
+              : 'bg-white text-ink-soft hover:bg-line/60'
           }`}
         >
           {cat}

@@ -1,8 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { getSettings, updateSettings as apiUpdateSettings } from '../services/api.js';
 
-const STORAGE_KEY = 'pos_settings';
-
-// Seed data so the app renders before the CI4 API + admin edits are in place.
 const DEFAULT_SETTINGS = {
   taxRate: 5, // GST %, applied to the discounted subtotal
   restaurantName: 'Your Restaurant Name',
@@ -12,27 +10,52 @@ const DEFAULT_SETTINGS = {
   gstin: 'Your GSTIN',
 };
 
-function loadSettings() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
-  } catch {
-    // ignore corrupt storage, fall back to defaults
+// The API's columns are snake_case; the app has always used camelCase for
+// this shape (OrderCart, AdminSettingsPage, Receipt/print.js), so every
+// consumer keeps working unchanged as long as this mapping stays in sync.
+const FIELD_MAP = {
+  taxRate: 'tax_rate',
+  restaurantName: 'restaurant_name',
+  addressLine1: 'address_line1',
+  addressLine2: 'address_line2',
+  phone: 'phone',
+  gstin: 'gstin',
+};
+
+function fromApi(row) {
+  const mapped = { ...DEFAULT_SETTINGS };
+  for (const [camelKey, snakeKey] of Object.entries(FIELD_MAP)) {
+    if (row[snakeKey] !== undefined && row[snakeKey] !== null) {
+      mapped[camelKey] = camelKey === 'taxRate' ? Number(row[snakeKey]) : row[snakeKey];
+    }
   }
-  return DEFAULT_SETTINGS;
+  return mapped;
+}
+
+function toApi(patch) {
+  const body = {};
+  for (const [camelKey, value] of Object.entries(patch)) {
+    if (FIELD_MAP[camelKey]) body[FIELD_MAP[camelKey]] = value;
+  }
+  return body;
 }
 
 const SettingsContext = createContext(null);
 
 export function SettingsProvider({ children }) {
-  const [settings, setSettings] = useState(loadSettings);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-  }, [settings]);
+    getSettings()
+      .then((res) => setSettings(fromApi(res.data)))
+      .catch(() => {
+        // Backend unreachable — keep defaults so the UI still renders.
+      });
+  }, []);
 
-  function updateSettings(patch) {
-    setSettings((prev) => ({ ...prev, ...patch }));
+  async function updateSettings(patch) {
+    const res = await apiUpdateSettings(toApi(patch));
+    setSettings(fromApi(res.data));
   }
 
   return (
