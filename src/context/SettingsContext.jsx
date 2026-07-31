@@ -44,13 +44,19 @@ const SettingsContext = createContext(null);
 
 export function SettingsProvider({ children }) {
   const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+  // True until the initial fetch settles (success or failure) — lets any
+  // consumer that copies `settings` into its own editable draft state (see
+  // AdminSettingsPage) know when it's safe to sync that copy with the real
+  // fetched values, instead of being permanently stuck on DEFAULT_SETTINGS.
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     getSettings()
       .then((res) => setSettings(fromApi(res.data)))
       .catch(() => {
         // Backend unreachable — keep defaults so the UI still renders.
-      });
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   async function updateSettings(patch) {
@@ -59,7 +65,7 @@ export function SettingsProvider({ children }) {
   }
 
   return (
-    <SettingsContext.Provider value={{ settings, updateSettings }}>
+    <SettingsContext.Provider value={{ settings, updateSettings, loading }}>
       {children}
     </SettingsContext.Provider>
   );

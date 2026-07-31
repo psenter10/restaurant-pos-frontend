@@ -38,7 +38,7 @@ export default function TableReservationModal({ onClose }) {
           </button>
         </div>
 
-        <div className="px-5 py-4 overflow-y-auto flex-1">
+        <div className="px-5 py-4 overflow-y-auto flex-1 thin-scrollbar">
           <p className="text-xs text-ink-soft mb-3">
             Select a table to reserve it, or select an already-reserved table to unbook it.
           </p>

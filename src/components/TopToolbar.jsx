@@ -7,6 +7,8 @@ import logo from '../assets/logo.png';
 const NAV_LINKS = [
   ['/', 'Tables'],
   ['/kitchen', 'Kitchen'],
+  ['/menu-management', 'Menu Management'],
+  ['/reports', 'Report'],
 ];
 
 export default function TopToolbar({ printerConnected, printerChecked }) {
@@ -95,7 +97,7 @@ export default function TopToolbar({ printerConnected, printerChecked }) {
             <IconHeadset className="w-4 h-4" />
             <div className="leading-tight text-left">
               <div className="text-[10px] opacity-80">Call for Support</div>
-              <div className="font-semibold">123456789</div>
+              <div className="font-semibold">24 X 7 Days</div>
             </div>
           </div>
           <button

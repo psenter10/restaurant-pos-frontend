@@ -104,6 +104,7 @@ export const getTableOrder = (tableId) => api.get(`/tables/${tableId}/order`);
 export const saveKot = (tableId, data) => api.post(`/tables/${tableId}/kots`, data);
 export const generateBill = (orderId, data) => api.put(`/orders/${orderId}/bill`, data);
 export const settleOrder = (orderId, data) => api.post(`/orders/${orderId}/settle`, data);
+export const deleteOrder = (orderId) => api.delete(`/orders/${orderId}`);
 
 // --- Kitchen Display ---
 export const getKots = (date) => api.get('/kots', { params: { date } });

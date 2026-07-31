@@ -55,7 +55,9 @@ export function WaiterProvider({ children }) {
   }
 
   return (
-    <WaiterContext.Provider value={{ waiters, addWaiter, renameWaiter, removeWaiter, toggleWaiterActive }}>
+    <WaiterContext.Provider
+      value={{ waiters, addWaiter, renameWaiter, removeWaiter, toggleWaiterActive, refreshWaiters: refresh }}
+    >
       {children}
     </WaiterContext.Provider>
   );

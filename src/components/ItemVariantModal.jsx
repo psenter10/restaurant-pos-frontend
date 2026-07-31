@@ -15,7 +15,7 @@ export default function ItemVariantModal({ item, onCancel, onSave }) {
   return (
     <div className="fixed inset-0 bg-ink/40 flex items-center justify-center z-50" onClick={onCancel}>
       <div
-        className="bg-white rounded-lg shadow-md w-[560px] max-w-[92vw] max-h-[85vh] overflow-y-auto"
+        className="bg-white rounded-lg shadow-md w-[560px] max-w-[92vw] max-h-[85vh] overflow-y-auto thin-scrollbar"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">

@@ -22,7 +22,7 @@ export default function CategorySidebar({
   }
 
   return (
-    <div className="w-40 shrink-0 bg-line/40 border-r border-line flex flex-col overflow-y-auto">
+    <div className="w-40 shrink-0 bg-line/40 border-r border-line flex flex-col overflow-y-auto thin-scrollbar">
       <div className="relative">
         <button
           onClick={() => setOpen((v) => !v)}

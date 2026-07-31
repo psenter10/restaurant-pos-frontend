@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useMenu } from '../context/MenuContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
@@ -16,6 +16,16 @@ const TABS = ['Items', 'Categories', 'Groups'];
 
 export default function MenuPage() {
   const [tab, setTab] = useState('Items');
+  const { refreshMenu } = useMenu();
+
+  // MenuContext is mounted once for the whole app session (POS order screen
+  // needs it too), so without this its one-time initial fetch would go stale
+  // across navigating away and back to this page — refetch every time it
+  // mounts. Placed here (not in each tab) so switching tabs doesn't refetch.
+  useEffect(() => {
+    refreshMenu();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div>
@@ -57,7 +67,11 @@ function ItemsTab() {
   const [favouritingId, setFavouritingId] = useState(null);
 
   const filtered = search.trim()
-    ? items.filter((i) => i.name.toLowerCase().includes(search.trim().toLowerCase()))
+    ? items.filter(
+        (i) =>
+          i.name.toLowerCase().includes(search.trim().toLowerCase()) ||
+          i.shortCode?.includes(search.trim())
+      )
     : items;
   const availableCount = items.filter((i) => i.available !== false).length;
 
@@ -143,7 +157,7 @@ function ItemsTab() {
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search items"
+            placeholder="Search items or code"
             className="outline-none bg-transparent text-sm w-full"
           />
         </div>
@@ -182,6 +196,7 @@ function ItemsTab() {
                     </span>
                   </div>
                   <div className="text-xs text-ink-soft font-mono mt-1">
+                    {item.shortCode && `#${item.shortCode} · `}
                     {item.category} · ₹{Number(item.price).toFixed(2)}
                   </div>
                   {hasExtras && (

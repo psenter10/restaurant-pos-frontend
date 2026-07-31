@@ -94,6 +94,7 @@ export default function OrderPage() {
   const [showAllItems, setShowAllItems] = useState(false);
   const [reloadingMenu, setReloadingMenu] = useState(false);
   const [search, setSearch] = useState('');
+  const [codeSearch, setCodeSearch] = useState('');
   const [cart, setCart] = useState([]);
   const [orderId, setOrderId] = useState(null);
   const [loadingOrder, setLoadingOrder] = useState(true);
@@ -103,6 +104,9 @@ export default function OrderPage() {
   const [orderMeta, setOrderMetaState] = useState(() => getOrderMeta(tableId));
   const [receiptOrder, setReceiptOrder] = useState(null);
   const [receiptType, setReceiptType] = useState('bill');
+  // Who opened this order (orders.created_by) -- printed as "Cashier" on the
+  // bill, distinct from the waiter dropdown which stays waiter-only.
+  const [cashierName, setCashierName] = useState('');
   const [variantItem, setVariantItem] = useState(null);
   const [settlePayload, setSettlePayload] = useState(null);
 
@@ -126,6 +130,7 @@ export default function OrderPage() {
         if (cancelled) return;
         const { order, items } = res.data;
         setOrderId(order?.id ?? null);
+        setCashierName(order?.created_by_username || '');
         if (mode !== 'kot') {
           setCart(mapOrderItems(items));
         }
@@ -161,7 +166,13 @@ export default function OrderPage() {
     : showFavourites
     ? availableItems.filter((i) => i.isFavourite)
     : categoryFiltered;
-  const filteredItems = search.trim()
+  // Code search is universal — it bypasses the active group/category/
+  // favourites scoping entirely, so an item shows up even if it isn't part
+  // of whatever's currently selected on the left. Clearing it restores
+  // whatever was selected before, since none of that state gets touched.
+  const filteredItems = codeSearch.trim()
+    ? availableItems.filter((i) => i.shortCode?.includes(codeSearch.trim()))
+    : search.trim()
     ? scopedItems.filter((i) => i.name.toLowerCase().includes(search.trim().toLowerCase()))
     : scopedItems;
 
@@ -331,6 +342,7 @@ export default function OrderPage() {
         orderNo: orderId,
         tableName: tableLabel || `Table ${tableId}`,
         waiter,
+        cashier: cashierName,
         orderType,
         customerName,
         items: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price, amount: i.price * i.qty })),
@@ -371,6 +383,7 @@ export default function OrderPage() {
       orderNo: orderId,
       tableName: tableLabel || `Table ${tableId}`,
       waiter,
+      cashier: cashierName,
       orderType,
       customerName,
       items: cart.map((i) => ({ name: i.name, qty: i.qty, price: i.price, amount: i.price * i.qty })),
@@ -469,6 +482,15 @@ export default function OrderPage() {
               className="outline-none bg-transparent text-sm w-full"
             />
           </div>
+          <div className="flex items-center gap-2 border border-line rounded-md px-3 py-2 w-40 bg-white">
+            <IconSearch className="w-4 h-4 text-ink-soft" />
+            <input
+              value={codeSearch}
+              onChange={(e) => setCodeSearch(e.target.value)}
+              placeholder="Item code"
+              className="outline-none bg-transparent text-sm w-full"
+            />
+          </div>
           <button
             onClick={handleReloadMenu}
             disabled={reloadingMenu}
@@ -480,7 +502,7 @@ export default function OrderPage() {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-4 thin-scrollbar">
           {menuLoading && menuItems.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-ink-soft text-sm">
               <Spinner className="w-6 h-6" />

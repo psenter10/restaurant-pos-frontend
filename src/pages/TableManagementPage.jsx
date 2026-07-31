@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useTables } from '../context/TableContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
@@ -69,7 +69,7 @@ function AddSectionModal({ onClose, onSave }) {
 }
 
 export default function TableManagementPage() {
-  const { sections, addSection, renameSection, deleteSection, toggleSectionAvailability, setSectionOrderType } =
+  const { sections, addSection, renameSection, deleteSection, toggleSectionAvailability, setSectionOrderType, refreshTables } =
     useTables();
   const { showSuccess, showError } = useToast();
   const [showAddModal, setShowAddModal] = useState(false);
@@ -78,6 +78,15 @@ export default function TableManagementPage() {
   // { type: 'delete-section' | 'deactivate-section' | 'rename-section' | 'order-type', name, newName?, orderType? }
   const [confirmAction, setConfirmAction] = useState(null);
   const [confirming, setConfirming] = useState(false);
+
+  // TableContext is mounted once for the whole app session (POS Tables/Order
+  // screens need it too), so without this its one-time initial fetch would
+  // go stale across navigating away and back to this page — refetch every
+  // time it mounts.
+  useEffect(() => {
+    refreshTables();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [togglingSection, setTogglingSection] = useState(null);
 
   const allTables = sections.flatMap((s) => s.tables);

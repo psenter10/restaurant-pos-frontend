@@ -197,7 +197,7 @@ const EMPTY_STATS = {
 };
 
 export default function AdminWaitersPage() {
-  const { waiters, addWaiter, renameWaiter, removeWaiter, toggleWaiterActive } = useWaiters();
+  const { waiters, addWaiter, renameWaiter, removeWaiter, toggleWaiterActive, refreshWaiters } = useWaiters();
   const { showSuccess, showError } = useToast();
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -207,6 +207,14 @@ export default function AdminWaitersPage() {
   const [statsById, setStatsById] = useState({});
   const [confirming, setConfirming] = useState(false);
   const [togglingId, setTogglingId] = useState(null);
+
+  // WaiterContext is mounted once for the whole app session, so without this
+  // its one-time initial fetch would go stale across navigating away and
+  // back to this page — refetch every time it mounts.
+  useEffect(() => {
+    refreshWaiters();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     getWaiterStats()

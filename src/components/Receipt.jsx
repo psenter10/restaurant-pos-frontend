@@ -85,7 +85,7 @@ export default function Receipt({ type, order, restaurant = RESTAURANT_INFO }) {
       </div>
       <div>{formatTime(now)}</div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
-        <span>Cashier: {order.waiter || '-'}</span>
+        <span>Cashier: {order.cashier || '-'}</span>
         <span>Bill No.: {order.orderNo}</span>
       </div>
       <Divider />

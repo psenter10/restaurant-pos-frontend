@@ -87,7 +87,7 @@ export default function ItemFormModal({ item, categories, onCancel, onSave }) {
       <form
         onSubmit={handleSubmit}
         onClick={(e) => e.stopPropagation()}
-        className="bg-white rounded-lg shadow-md w-[520px] max-w-[92vw] max-h-[85vh] overflow-y-auto"
+        className="bg-white rounded-lg shadow-md w-[520px] max-w-[92vw] max-h-[85vh] overflow-y-auto thin-scrollbar"
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <h3 className="font-display font-semibold text-lg">{isEdit ? 'Edit Item' : 'Add Item'}</h3>

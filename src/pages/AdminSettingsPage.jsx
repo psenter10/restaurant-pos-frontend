@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useSettings } from '../context/SettingsContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
@@ -18,13 +18,27 @@ function Field({ label, help, children }) {
 const inputClass = 'w-full border border-line rounded-md px-3 py-2 text-sm outline-none focus:border-navy';
 
 export default function AdminSettingsPage() {
-  const { settings, updateSettings } = useSettings();
+  const { settings, updateSettings, loading } = useSettings();
   const { showSuccess, showError } = useToast();
   const [draft, setDraft] = useState(settings);
   const [confirmingTax, setConfirmingTax] = useState(false);
   const [confirmingReceipt, setConfirmingReceipt] = useState(false);
   const [savingTax, setSavingTax] = useState(false);
   const [savingReceipt, setSavingReceipt] = useState(false);
+
+  // `draft` is seeded from `settings` above before the context's own async
+  // fetch has resolved, so it locks in DEFAULT_SETTINGS on first render —
+  // resync it once (and only once) real data arrives, so a page reload
+  // doesn't leave the form stuck showing static placeholder values. Guarded
+  // to run once so it doesn't clobber unsaved edits in one form's fields
+  // whenever a save in the OTHER form updates the shared `settings` object.
+  const hasSyncedRef = useRef(false);
+  useEffect(() => {
+    if (!loading && !hasSyncedRef.current) {
+      setDraft(settings);
+      hasSyncedRef.current = true;
+    }
+  }, [loading, settings]);
 
   function set(field, value) {
     setDraft((prev) => ({ ...prev, [field]: value }));

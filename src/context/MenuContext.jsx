@@ -43,6 +43,7 @@ function mapItem(row, categoryById) {
   const item = {
     id: row.id,
     name: row.name,
+    shortCode: row.short_code || '',
     price: Number(row.price),
     category: categoryById.get(row.category_id)?.name || '',
     veg: row.veg !== 0,

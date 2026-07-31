@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useUsers } from '../context/UserContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
@@ -153,7 +153,7 @@ function ResetPasswordModal({ user, onClose, onSave }) {
 }
 
 export default function AdminUsersPage() {
-  const { users, addUser, removeUser, resetPassword, toggleUserActive } = useUsers();
+  const { users, addUser, removeUser, resetPassword, toggleUserActive, refreshUsers } = useUsers();
   const { showSuccess, showError } = useToast();
   const [search, setSearch] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -161,6 +161,14 @@ export default function AdminUsersPage() {
   const [confirmAction, setConfirmAction] = useState(null); // { type: 'delete' | 'deactivate', user }
   const [confirming, setConfirming] = useState(false);
   const [togglingId, setTogglingId] = useState(null);
+
+  // UserContext is mounted once for the whole admin session (see AdminLayout),
+  // so without this its one-time initial fetch would go stale across
+  // navigating away and back to this page — refetch every time it mounts.
+  useEffect(() => {
+    refreshUsers();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const activeCount = users.filter((u) => u.active !== false).length;
   const filtered = search.trim()

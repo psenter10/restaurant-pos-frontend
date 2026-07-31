@@ -12,7 +12,6 @@ import {
   IconCheck,
   IconPrinter,
 } from './icons.jsx';
-import ConfirmModal from './ConfirmModal.jsx';
 import Spinner from './Spinner.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
 import { useWaiters } from '../context/WaiterContext.jsx';
@@ -119,11 +118,10 @@ export default function OrderCart({
   const [customerEmail, setCustomerEmail] = useState('');
   const [customerCity, setCustomerCity] = useState('');
   const [summaryOpen, setSummaryOpen] = useState(false);
-  // 'kot' | 'bill' | null — which action is pending confirmation.
-  const [confirmAction, setConfirmAction] = useState(null);
   const [saving, setSaving] = useState(false);
   const mergeRef = useRef(null);
   const panelRef = useRef(null);
+  const itemListRef = useRef(null);
 
   // initialWaiter/initialPax can arrive after this component's first render
   // (the parent resolves them from the order's own API fetch) — fill them in
@@ -193,6 +191,15 @@ export default function OrderCart({
     { key: 'waiter', icon: IconBowl, label: 'Waiter', filled: waiterFilled },
   ];
 
+  // Auto-scroll to the newest item as the cart fills up during active
+  // ordering (not the read-only bill/settle grouped view, where jumping
+  // around while reviewing would be more disruptive than helpful).
+  useEffect(() => {
+    if (mode === 'bill' || mode === 'settle') return;
+    const el = itemListRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [items.length, mode]);
+
   const itemCount = items.reduce((sum, i) => sum + i.qty, 0);
   const subtotal = items.reduce((sum, i) => sum + i.price * i.qty, 0);
   const rawDiscount =
@@ -209,43 +216,44 @@ export default function OrderCart({
 
   // Waiter + Pax are optional — whatever's set (see initialWaiter/initialPax)
   // just carries forward to later KOT rounds, Bill, and Settle for this table.
-  function handleRequestSaveKot() {
-    setConfirmAction('kot');
-  }
-
-  function handleRequestGenerateBill() {
-    setConfirmAction('bill');
-  }
-
-  async function runConfirmedAction() {
-    if (saving || !confirmAction) return;
+  // No confirm dialog — calls straight through to the API + print. The
+  // `saving` guard (checked synchronously before setSaving) plus disabling
+  // the button while it's true is what stops a double-click from firing two
+  // API calls, same protection the old confirm-modal's button had.
+  async function handleSaveKot() {
+    if (saving || !hasItems) return;
     setSaving(true);
     try {
-      if (confirmAction === 'kot') {
-        await onSaveKot({
-          waiter,
-          pax: pax === '' ? undefined : Number(pax),
-          orderType,
-          tableLabel,
-          note,
-        });
-      } else if (confirmAction === 'bill') {
-        await onGenerateBill({
-          subtotal,
-          discount: discountAmount,
-          tax,
-          taxRate: settings.taxRate,
-          total,
-          waiter,
-          pax: pax === '' ? undefined : Number(pax),
-          orderType,
-          tableLabel,
-          customerName,
-        });
-      }
+      await onSaveKot({
+        waiter,
+        pax: pax === '' ? undefined : Number(pax),
+        orderType,
+        tableLabel,
+        note,
+      });
     } finally {
       setSaving(false);
-      setConfirmAction(null);
+    }
+  }
+
+  async function handleGenerateBill() {
+    if (saving || !hasItems) return;
+    setSaving(true);
+    try {
+      await onGenerateBill({
+        subtotal,
+        discount: discountAmount,
+        tax,
+        taxRate: settings.taxRate,
+        total,
+        waiter,
+        pax: pax === '' ? undefined : Number(pax),
+        orderType,
+        tableLabel,
+        customerName,
+      });
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -330,7 +338,7 @@ export default function OrderCart({
                 Merge Tables
               </button>
               {mergeOpen && (
-                <div className="absolute right-0 top-full mt-1 w-40 bg-white border border-line rounded-md shadow-md z-20 max-h-40 overflow-y-auto">
+                <div className="absolute right-0 top-full mt-1 w-40 bg-white border border-line rounded-md shadow-md z-20 max-h-40 overflow-y-auto thin-scrollbar">
                   {allTables.length === 0 && (
                     <p className="px-3 py-2 text-xs text-ink-soft">No other tables available.</p>
                   )}
@@ -436,7 +444,7 @@ export default function OrderCart({
         <span className="text-right">Price</span>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-3 thin-scrollbar">
+      <div ref={itemListRef} className="flex-1 overflow-y-auto px-4 py-3 thin-scrollbar">
         {loading ? (
           <div className="h-full flex flex-col items-center justify-center text-center gap-2">
             <Spinner className="w-6 h-6" />
@@ -570,21 +578,23 @@ export default function OrderCart({
 
         {mode === 'kot' && (
           <button
-            onClick={handleRequestSaveKot}
+            onClick={handleSaveKot}
             disabled={!hasItems || saving}
-            className="w-full bg-slate-700 hover:bg-slate-800 text-white text-sm font-semibold py-2.5 rounded disabled:opacity-40"
+            className="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-800 text-white text-sm font-semibold py-2.5 rounded disabled:opacity-40"
           >
-            Save &amp; Print KOT
+            {saving && <Spinner className="w-4 h-4 border-[1.5px]" tone="border-t-white" />}
+            {saving ? 'Saving & Printing…' : 'Save & Print KOT'}
           </button>
         )}
 
         {mode === 'bill' && (
           <button
-            onClick={handleRequestGenerateBill}
+            onClick={handleGenerateBill}
             disabled={!hasItems || saving}
-            className="w-full bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2.5 rounded disabled:opacity-40"
+            className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2.5 rounded disabled:opacity-40"
           >
-            Print Bill
+            {saving && <Spinner className="w-4 h-4 border-[1.5px]" tone="border-t-white" />}
+            {saving ? 'Printing…' : 'Print Bill'}
           </button>
         )}
 
@@ -619,22 +629,6 @@ export default function OrderCart({
           </div>
         )}
       </div>
-
-      {confirmAction && (
-        <ConfirmModal
-          title={confirmAction === 'kot' ? 'Save & print this KOT?' : 'Generate this bill?'}
-          message={
-            confirmAction === 'kot'
-              ? `This sends ${itemCount} item${itemCount === 1 ? '' : 's'} to the kitchen and prints a KOT ticket.`
-              : `This prints the bill for ₹${total.toFixed(2)} and marks the table as billed.`
-          }
-          confirmLabel={confirmAction === 'kot' ? 'Save & Print' : 'Print Bill'}
-          danger={false}
-          confirming={saving}
-          onCancel={() => setConfirmAction(null)}
-          onConfirm={runConfirmedAction}
-        />
-      )}
     </div>
   );
 }

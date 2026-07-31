@@ -215,7 +215,7 @@ function buildReceiptLines({ type, restaurant, order, charWidth = 48 }) {
       ESC + 'E' + '\x00',
       `${formatTime(now)}\n`,
       ESC + 'E' + '\x01',
-      pad(`Cashier: ${order.waiter || '-'}`, `Bill No.: ${order.orderNo}`),
+      pad(`Cashier: ${order.cashier || '-'}`, `Bill No.: ${order.orderNo}`),
       ESC + 'E' + '\x00',
       divider,
       'No.'.padEnd(noW) +

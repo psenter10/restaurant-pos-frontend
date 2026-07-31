@@ -11,7 +11,7 @@ import TableReservationModal from '../components/TableReservationModal.jsx';
 
 const LEGEND = [
   { status: 'blank', label: 'Blank Table', dot: 'bg-white border border-ink-soft/40' },
-  { status: 'running', label: 'Running Table', dot: 'bg-sky' },
+  { status: 'running', label: 'Running Table', dot: 'bg-sky-light border border-sky' },
   { status: 'printed', label: 'Bill Printed', dot: 'bg-sage' },
   { status: 'reserved', label: 'Reserved Table', dot: 'bg-rust' },
 ];
