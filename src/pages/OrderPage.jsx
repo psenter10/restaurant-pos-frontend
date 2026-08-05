@@ -16,7 +16,7 @@ import { useWaiters } from '../context/WaiterContext.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
 import { useToast } from '../context/ToastContext.jsx';
 import { apiErrorMessage } from '../utils/apiError.js';
-import { getTableOrder, saveKot, generateBill, settleOrder } from '../services/api.js';
+import { getTableOrder, saveKot, generateBill, settleOrder, deleteOrder, cancelKot } from '../services/api.js';
 import { getOrderMeta, setOrderMeta, clearOrderMeta } from '../services/orderMeta.js';
 
 function findTableEntry(sections, tableId) {
@@ -51,6 +51,7 @@ function mapOrderItems(items) {
     qty: item.qty,
     notes: item.notes || undefined,
     kotNo: item.kot_no,
+    kotId: item.kot_id,
     kotTime: item.kot_time,
     lineId: item.id,
   }));
@@ -366,6 +367,20 @@ export default function OrderPage() {
     }
   }
 
+  // Billing panel only — hard-deletes the order (cascades to its KOTs/items
+  // server-side) and frees this table, before any bill has been generated.
+  async function handleCancelOrder() {
+    if (!orderId) return;
+    try {
+      await deleteOrder(orderId);
+      showSuccess('Order cancelled.');
+      await refreshTables();
+      navigate('/');
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not cancel the order. Please try again.'));
+    }
+  }
+
   // Settle mode: reprint doesn't change anything server-side, just re-prints
   // using the totals already computed for this order.
   async function handleReprintBill({
@@ -420,6 +435,28 @@ export default function OrderPage() {
     await printReceipt('kot', order, null, { charWidth: 48 });
   }
 
+  // Deletes an entire KOT round (all its items) from the Billing panel.
+  // If it was the only round left, the backend removes the now-empty order
+  // and frees the table too — refetch rather than assume, and bounce back
+  // to the table list in that case since there's nothing left to bill.
+  async function handleDeleteKot({ kotId }) {
+    try {
+      await cancelKot(kotId);
+      const res = await getTableOrder(tableId);
+      const { order, items } = res.data;
+      await refreshTables();
+      if (!order) {
+        showSuccess('KOT deleted — order is now empty.');
+        navigate('/');
+        return;
+      }
+      setCart(mapOrderItems(items));
+      showSuccess('KOT deleted.');
+    } catch (err) {
+      showError(apiErrorMessage(err, 'Could not delete the KOT. Please try again.'));
+    }
+  }
+
   function handleOpenSettle(totals) {
     setSettlePayload(totals);
   }
@@ -458,7 +495,8 @@ export default function OrderPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-72px)] -mx-6 -my-6 overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-72px)] -mx-6 -my-6 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden">
       <CategorySidebar
         groups={menuGroups}
         activeGroup={activeGroup}
@@ -516,10 +554,6 @@ export default function OrderPage() {
             </div>
           )}
         </div>
-
-        <div className="py-2.5 text-center text-sm text-ink-soft/70 border-t border-line bg-white">
-          Design &amp; Developed by : Layoncube
-        </div>
       </div>
 
       <OrderCart
@@ -534,8 +568,10 @@ export default function OrderPage() {
         mode={mode}
         onSaveKot={handleSaveKot}
         onGenerateBill={handleGenerateBill}
+        onCancelOrder={handleCancelOrder}
         onReprintBill={handleReprintBill}
         onReprintKot={handleReprintKot}
+        onDeleteKot={handleDeleteKot}
         onOpenSettle={handleOpenSettle}
         allTables={allTables}
         initialMergedWith={currentTable?.mergedWith || []}
@@ -544,6 +580,11 @@ export default function OrderPage() {
         initialWaiter={orderMeta.waiter || ''}
         initialPax={orderMeta.pax ?? ''}
       />
+    </div>
+
+      <div className="py-1 text-center text-sm text-ink-soft/70 border-t border-line bg-white shrink-0">
+        Design &amp; Developed by : Layoncube
+      </div>
 
       <Receipt type={receiptType} order={receiptOrder} restaurant={restaurant} />
 

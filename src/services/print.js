@@ -179,6 +179,18 @@ function buildReceiptLines({ type, restaurant, order, charWidth = 48 }) {
   const divider = '='.repeat(charWidth) + '\n';
   const thinDivider = '-'.repeat(charWidth) + '\n'; // single rule under the item table header
 
+  // KOT's Item Name/Qty table only has two columns, so pad()'s normal
+  // flush-to-the-edge alignment leaves Qty sitting right against the paper
+  // edge — reserve a few blank columns on the right so it doesn't.
+  const KOT_QTY_RIGHT_MARGIN = 4;
+  const padKotItem = (label, value) => {
+    const l = String(label);
+    const v = String(value);
+    const width = charWidth - KOT_QTY_RIGHT_MARGIN;
+    const gap = Math.max(1, width - l.length - v.length);
+    return l + ' '.repeat(gap) + v + ' '.repeat(KOT_QTY_RIGHT_MARGIN) + '\n';
+  };
+
   const lines = [
     ESC + '@', // init
     ESC + 'M' + '\x00', // select Font A (standard size, not the printer's condensed default)
@@ -200,7 +212,8 @@ function buildReceiptLines({ type, restaurant, order, charWidth = 48 }) {
       GS + '!' + '\x11', // double width + double height (heading size)
       `${restaurant.name}\n`,
       GS + '!' + '\x00', // reset to normal size
-      ESC + 'E' + '\x00'
+      ESC + 'E' + '\x00',
+      '\n' // extra gap below the restaurant name, before the address
     );
     restaurant.addressLines.forEach((line) => lines.push(`${line}\n`));
     lines.push(
@@ -308,12 +321,15 @@ function buildReceiptLines({ type, restaurant, order, charWidth = 48 }) {
     if (order.note) {
       lines.push(`Note: ${order.note}\n`);
     }
-    lines.push(divider, pad('Item Name', 'Qty'), thinDivider);
+    lines.push(divider, padKotItem('Item Name', 'Qty'), thinDivider);
 
     order.items.forEach((item) => {
       const { main, note } = splitItemName(item.name);
-      lines.push(ESC + 'E' + '\x01', pad(main, String(item.qty)), ESC + 'E' + '\x00');
+      lines.push(ESC + 'E' + '\x01', padKotItem(main, String(item.qty)), ESC + 'E' + '\x00');
       if (note) lines.push(`  (${note})\n`);
+      // Tighter line spacing just for this gap line — a full default-height
+      // blank line was more than "a little" space between items.
+      lines.push(ESC + '3' + '\x10', '\n', ESC + '2'); // ESC 2 restores default spacing
     });
 
     lines.push(divider, '\n\n\n\n\n', GS + 'V' + '\x00');

@@ -1,5 +1,5 @@
 import axios from 'axios';
-
+import { logout as clearSession } from './auth.js';
 
 const baseURL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080/api';
 
@@ -25,12 +25,25 @@ api.interceptors.request.use((config) => {
 // using res.data as the payload directly, same as before a real API existed.
 // Error responses ({ success:false, message, errors }) are left as-is —
 // they surface via the rejected promise's error.response.data.
-api.interceptors.response.use((response) => {
-  if (response.data && typeof response.data === 'object' && 'data' in response.data) {
-    response.data = response.data.data;
+api.interceptors.response.use(
+  (response) => {
+    if (response.data && typeof response.data === 'object' && 'data' in response.data) {
+      response.data = response.data.data;
+    }
+    return response;
+  },
+  (error) => {
+    // 401 = TokenAuthFilter rejected the request outright (missing header,
+    // no token in storage, or an expired/revoked one) — the session is
+    // unusable no matter which page is open, so force back to login instead
+    // of leaving every page to fail silently or handle this individually.
+    if (error.response?.status === 401 && window.location.pathname !== '/login') {
+      clearSession();
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
   }
-  return response;
-});
+);
 
 // --- Auth ---
 export const login = (username, password) => api.post('/auth/login', { username, password });

@@ -70,7 +70,7 @@ export default function TopToolbar({ printerConnected, printerChecked }) {
           onClick={() => navigate('/')}
           className="flex items-center gap-1.5 bg-rust text-white text-sm font-medium px-4 py-2 rounded-md hover:bg-rust/90 whitespace-nowrap"
         >
-          Table View
+          New Order
         </button>
 
         <div className="flex items-center gap-4 ml-auto pl-4">

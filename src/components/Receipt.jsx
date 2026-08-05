@@ -41,15 +41,15 @@ export default function Receipt({ type, order, restaurant = RESTAURANT_INFO }) {
           </div>
         )}
         <Divider />
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 700, paddingRight: 16 }}>
           <span>Item Name</span>
           <span>Qty</span>
         </div>
         {order.items.map((item, idx) => {
           const { main, note } = splitItemName(item.name);
           return (
-            <div key={idx} style={{ padding: '7px 0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+            <div key={idx} style={{ padding: '8px 0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingRight: 16 }}>
                 <span>{main}</span>
                 <span>{item.qty}</span>
               </div>
@@ -68,7 +68,7 @@ export default function Receipt({ type, order, restaurant = RESTAURANT_INFO }) {
 
   return (
     <div id="print-area" className="hidden">
-      <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 21 }}>{restaurant.name}</div>
+      <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 21, marginBottom: 8 }}>{restaurant.name}</div>
       {restaurant.addressLines.map((line, idx) => (
         <div key={idx} style={{ textAlign: 'center' }}>
           {line}

@@ -11,7 +11,9 @@ import {
   IconBowl,
   IconCheck,
   IconPrinter,
+  IconTrash,
 } from './icons.jsx';
+import ConfirmModal from './ConfirmModal.jsx';
 import Spinner from './Spinner.jsx';
 import { useSettings } from '../context/SettingsContext.jsx';
 import { useWaiters } from '../context/WaiterContext.jsx';
@@ -32,7 +34,7 @@ function groupItemsByKot(items) {
   items.forEach((item) => {
     const key = item.kotNo ?? 'unassigned';
     if (!current || current.key !== key) {
-      current = { key, kotNo: item.kotNo, kotTime: item.kotTime, items: [] };
+      current = { key, kotNo: item.kotNo, kotId: item.kotId, kotTime: item.kotTime, items: [] };
       groups.push(current);
     }
     current.items.push(item);
@@ -90,8 +92,10 @@ export default function OrderCart({
   mode,
   onSaveKot,
   onGenerateBill,
+  onCancelOrder,
   onReprintBill,
   onReprintKot,
+  onDeleteKot,
   onOpenSettle,
   allTables = [],
   initialMergedWith = [],
@@ -119,6 +123,10 @@ export default function OrderCart({
   const [customerCity, setCustomerCity] = useState('');
   const [summaryOpen, setSummaryOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [cancelConfirm, setCancelConfirm] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [deleteKotTarget, setDeleteKotTarget] = useState(null); // KOT group pending delete confirmation
+  const [deletingKot, setDeletingKot] = useState(false);
   const mergeRef = useRef(null);
   const panelRef = useRef(null);
   const itemListRef = useRef(null);
@@ -254,6 +262,28 @@ export default function OrderCart({
       });
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleCancelOrder() {
+    if (cancelling) return;
+    setCancelling(true);
+    try {
+      await onCancelOrder();
+    } finally {
+      setCancelling(false);
+      setCancelConfirm(false);
+    }
+  }
+
+  async function handleDeleteKot() {
+    if (deletingKot || !deleteKotTarget) return;
+    setDeletingKot(true);
+    try {
+      await onDeleteKot(deleteKotTarget);
+    } finally {
+      setDeletingKot(false);
+      setDeleteKotTarget(null);
     }
   }
 
@@ -475,6 +505,16 @@ export default function OrderCart({
                       <IconPrinter className="w-3.5 h-3.5" />
                     </button>
                   )}
+                  {mode === 'bill' && group.kotNo != null && (
+                    <button
+                      onClick={() => setDeleteKotTarget(group)}
+                      title="Delete this KOT"
+                      aria-label={`Delete KOT ${group.kotNo}`}
+                      className="text-rust hover:text-rust/70"
+                    >
+                      <IconTrash className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
                 <div className="space-y-2">
                   {group.items.map((item) => (
@@ -588,14 +628,28 @@ export default function OrderCart({
         )}
 
         {mode === 'bill' && (
-          <button
-            onClick={handleGenerateBill}
-            disabled={!hasItems || saving}
-            className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2.5 rounded disabled:opacity-40"
-          >
-            {saving && <Spinner className="w-4 h-4 border-[1.5px]" tone="border-t-white" />}
-            {saving ? 'Printing…' : 'Print Bill'}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={handleGenerateBill}
+              disabled={!hasItems || saving || cancelling}
+              className="flex-1 flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2.5 rounded disabled:opacity-40"
+            >
+              {saving && <Spinner className="w-4 h-4 border-[1.5px]" tone="border-t-white" />}
+              {saving ? 'Printing…' : 'Print Bill'}
+            </button>
+            {/* Hidden once the bill starts printing — at that point the order is
+                about to be recorded as billed, so cancelling it no longer applies. */}
+            {!saving && (
+              <button
+                onClick={() => setCancelConfirm(true)}
+                disabled={cancelling}
+                className="flex-1 flex items-center justify-center gap-2 bg-rust hover:bg-rust/90 text-white text-sm font-semibold py-2.5 rounded disabled:opacity-40"
+              >
+                {cancelling && <Spinner className="w-4 h-4 border-[1.5px]" tone="border-t-white" />}
+                {cancelling ? 'Cancelling…' : 'Cancel Order'}
+              </button>
+            )}
+          </div>
         )}
 
         {mode === 'settle' && (
@@ -629,6 +683,30 @@ export default function OrderCart({
           </div>
         )}
       </div>
+
+      {cancelConfirm && (
+        <ConfirmModal
+          title="Cancel this order?"
+          message="This permanently deletes the entire order — including any KOTs already sent to the kitchen — and frees up this table. This cannot be undone."
+          confirmLabel="Cancel Order"
+          danger
+          confirming={cancelling}
+          onCancel={() => setCancelConfirm(false)}
+          onConfirm={handleCancelOrder}
+        />
+      )}
+
+      {deleteKotTarget && (
+        <ConfirmModal
+          title="Delete this KOT?"
+          message={`This permanently removes KOT - ${deleteKotTarget.kotNo} and all its items — the kitchen will no longer see it. This cannot be undone.`}
+          confirmLabel="Delete KOT"
+          danger
+          confirming={deletingKot}
+          onCancel={() => setDeleteKotTarget(null)}
+          onConfirm={handleDeleteKot}
+        />
+      )}
     </div>
   );
 }
